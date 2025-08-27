@@ -1,0 +1,143 @@
+// Copyright © 2024 GothicKit Contributors.
+// SPDX-License-Identifier: MIT
+#include "bindings_common.hh"
+#include "zenkit/World.hh"
+#include "zenkit/Stream.hh"
+#include "zenkit/Error.hh"
+#include "zenkit/Mesh.hh"
+#include "zenkit/world/BspTree.hh"
+
+namespace zenkit::wasm {
+
+    // MeshWrapper is now defined in bindings_common.hh
+
+    /// \brief WebAssembly wrapper for zenkit::World that mirrors the C++ structure
+    class WorldWrapper {
+    public:
+        WorldWrapper() = default;
+        ~WorldWrapper() = default;
+
+        // Non-copyable but movable
+        WorldWrapper(const WorldWrapper&) = delete;
+        WorldWrapper& operator=(const WorldWrapper&) = delete;
+        WorldWrapper(WorldWrapper&&) = default;
+        WorldWrapper& operator=(WorldWrapper&&) = default;
+
+        /// \brief Load world from WebAssembly memory buffer
+        Result<bool> load(uintptr_t data_ptr, size_t length) {
+            try {
+                auto reader = create_reader_from_buffer(data_ptr, length);
+                world_.load(reader.get());
+                return Result<bool>(true);
+            } catch (const std::exception& e) {
+                return Result<bool>(e.what());
+            }
+        }
+
+        /// \brief Load world with specific game version
+        Result<bool> loadWithVersion(uintptr_t data_ptr, size_t length, int version) {
+            try {
+                auto reader = create_reader_from_buffer(data_ptr, length);
+                auto game_version = static_cast<GameVersion>(version);
+                world_.load(reader.get(), game_version);
+                return Result<bool>(true);
+            } catch (const std::exception& e) {
+                return Result<bool>(e.what());
+            }
+        }
+
+        // Direct access to World members (mirroring C++ structure)
+        
+        // Expose actual data as properties (not count functions)
+        
+        // Basic world info
+        [[nodiscard]] bool getNpcSpawnEnabled() const { return world_.npc_spawn_enabled; }
+        [[nodiscard]] int getNpcSpawnFlags() const { return world_.npc_spawn_flags; }
+        [[nodiscard]] bool hasPlayer() const { return world_.player != nullptr; }
+        [[nodiscard]] bool hasSkyController() const { return world_.sky_controller != nullptr; }
+
+        // Access to underlying world object
+        [[nodiscard]] const World& getWorld() const { return world_; }
+
+        // Direct mesh access as property
+        std::unique_ptr<MeshWrapper> getMesh() const {
+            return std::make_unique<MeshWrapper>(world_.world_mesh);
+        }
+
+    private:
+        World world_;
+    };
+
+    /// \brief Factory function for creating World instances
+    std::unique_ptr<WorldWrapper> createWorld() {
+        return std::make_unique<WorldWrapper>();
+    }
+
+} // namespace zenkit::wasm
+
+// Emscripten bindings for World class
+EMSCRIPTEN_BINDINGS(zenkit_world) {
+    using namespace zenkit::wasm;
+    using namespace emscripten;
+
+    // Game version enum
+    enum_<zenkit::GameVersion>("GameVersion")
+        .value("GOTHIC_1", zenkit::GameVersion::GOTHIC_1)
+        .value("GOTHIC_2", zenkit::GameVersion::GOTHIC_2);
+
+    // Result template for bool operations
+    class_<Result<bool>>("BoolResult")
+        .property("success", &Result<bool>::success)
+        .property("errorMessage", &Result<bool>::error_message);
+
+    // Bind geometric structures
+    value_object<Vector3>("Vector3")
+        .field("x", &Vector3::x)
+        .field("y", &Vector3::y)  
+        .field("z", &Vector3::z);
+
+    value_object<Vector2>("Vector2")
+        .field("x", &Vector2::x)
+        .field("y", &Vector2::y);
+
+    value_object<VertexFeature>("VertexFeature")
+        .field("texture", &VertexFeature::texture)
+        .field("light", &VertexFeature::light)
+        .field("normal", &VertexFeature::normal);
+
+    // Register vector types
+    register_vector<Vector3>("VectorVector3");
+    register_vector<Vector2>("VectorVector2");
+    register_vector<VertexFeature>("VectorVertexFeature");
+    register_vector<uint32_t>("VectorUint32");
+
+    // MeshData - expose actual data as properties
+    class_<MeshWrapper>("MeshData")
+        .property("vertices", &MeshWrapper::getVertices)
+        .property("features", &MeshWrapper::getFeatures)
+        .property("vertexIndices", &MeshWrapper::getVertexIndices)
+        .property("normals", &MeshWrapper::getNormals)
+        .property("textureCoords", &MeshWrapper::getTextureCoords)
+        .property("lightValues", &MeshWrapper::getLightValues)
+        .property("boundingBoxMin", &MeshWrapper::getBoundingBoxMin)
+        .property("boundingBoxMax", &MeshWrapper::getBoundingBoxMax)
+        .property("name", &MeshWrapper::getName);
+
+    // Main World wrapper - properties instead of count functions
+    class_<WorldWrapper>("World")
+        // Loading methods (these are actions, so stay as functions)
+        .function("load", &WorldWrapper::load)
+        .function("loadWithVersion", &WorldWrapper::loadWithVersion)
+        
+        // Properties (not count functions!)
+        .property("npcSpawnEnabled", &WorldWrapper::getNpcSpawnEnabled)
+        .property("npcSpawnFlags", &WorldWrapper::getNpcSpawnFlags)
+        .property("hasPlayer", &WorldWrapper::hasPlayer)
+        .property("hasSkyController", &WorldWrapper::hasSkyController)
+        
+        // Mesh access as property
+        .property("mesh", &WorldWrapper::getMesh, allow_raw_pointers());
+
+    // Factory function
+    function("createWorld", &createWorld);
+}

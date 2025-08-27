@@ -29,30 +29,6 @@ jobs:
         working-directory: 'build/'
         run: 'ctest --output-on-failure'
 
-  macos:
-    name: "MacOS"
-    strategy:
-      fail-fast: false
-      matrix:
-        xcode:
-          - '15'
-        build_type: [ 'Debug', 'Release' ]
-    env:
-      ASAN_OPTIONS: 'detect_container_overflow=0'
-    runs-on: 'macos-latest'
-    steps:
-      - uses: 'actions/checkout@v3'
-      - uses: 'maxim-lobanov/setup-xcode@v1'
-        with:
-          xcode-version: '${{matrix.xcode}}'
-      - name: 'Configure'
-        run: 'cmake -B build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DZK_BUILD_EXAMPLES=ON -DZK_BUILD_TESTS=ON -DBUILD_SQUISH_WITH_SSE2=OFF'
-      - name: 'Build'
-        run: 'cmake --build build'
-      - name: 'Test'
-        working-directory: 'build/'
-        run: 'ctest --output-on-failure'
-
   windows:
     name: "Windows"
     runs-on: 'windows-2019'

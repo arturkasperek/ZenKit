@@ -72,6 +72,20 @@ cmake --build build
 
 You will find the library in `build/`.
 
+### WebAssembly Build
+
+To build for WebAssembly using Emscripten:
+
+```bash
+emcmake cmake -B build-wasm -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DZK_BUILD_WASM=ON
+emmake cmake --build build-wasm
+
+# Test the WebAssembly build
+    cd build-wasm/wasm
+    node test-world.mjs  # Test world properties and functionality
+    node test-mesh.mjs   # Test mesh data access and vectors
+```
+
 ## Using
 
 ```cpp

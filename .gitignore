@@ -4,6 +4,7 @@
 /.cache/
 
 /build/
+/build-wasm/
 /cmake-build-*/
 /data/
 /site/

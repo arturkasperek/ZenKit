@@ -3,9 +3,22 @@ project(ZenKit VERSION 1.3.0)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Detect if we're building with Emscripten
+if (CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    set(EMSCRIPTEN TRUE)
+    message(STATUS "ZenKit: Emscripten detected")
+    # Auto-enable WebAssembly build and disable incompatible features
+    set(ZK_BUILD_WASM ON)
+    set(ZK_BUILD_TESTS OFF)
+    set(ZK_BUILD_EXAMPLES OFF)
+    set(ZK_ENABLE_MMAP OFF)
+    set(ZK_ENABLE_ASAN OFF)
+endif()
+
 option(ZK_BUILD_EXAMPLES "ZenKit: Build the examples." OFF)
 option(ZK_BUILD_TESTS "ZenKit: Build the test suite." ON)
 option(ZK_BUILD_SHARED "ZenKit: Build a shared library." OFF)
+option(ZK_BUILD_WASM "ZenKit: Build WebAssembly bindings." OFF)
 
 option(ZK_ENABLE_ASAN "ZenKit: Enable sanitizers in debug builds." ON)
 option(ZK_ENABLE_DEPRECATION "ZenKit: Enable deprecation warnings." ON)
@@ -111,7 +124,7 @@ bs_select_cflags(${ZK_ENABLE_ASAN} _ZK_COMPILE_FLAGS _ZK_LINK_FLAGS)
 bs_check_posix_mmap(_ZK_HAS_MMAP_POSIX)
 bs_check_win32_mmap(_ZK_HAS_MMAP_WIN32)
 
-if (ZK_ENABLE_MMAP AND (_ZK_HAS_MMAP_POSIX OR _ZK_HAS_MMAP_WIN32))
+if (ZK_ENABLE_MMAP AND (_ZK_HAS_MMAP_POSIX OR _ZK_HAS_MMAP_WIN32) AND NOT EMSCRIPTEN)
     if (_ZK_HAS_MMAP_POSIX)
         message(STATUS "ZenKit: Building with POSIX memory mapping support")
         list(APPEND _ZK_SOURCES src/MmapPosix.cc)
@@ -155,4 +168,56 @@ endif ()
 # when building examples, include the subdirectory
 if (ZK_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif ()
+
+# WebAssembly support
+if (ZK_BUILD_WASM)
+    if (NOT EMSCRIPTEN)
+        message(FATAL_ERROR "ZenKit: WebAssembly build requires Emscripten. Use 'emcmake cmake' to configure.")
+    endif()
+    
+    message(STATUS "ZenKit: Building WebAssembly bindings")
+    
+    # Disable memory mapping for WebAssembly builds
+    set(ZK_ENABLE_MMAP OFF FORCE)
+    message(STATUS "ZenKit: Memory mapping disabled for WebAssembly")
+    
+    # Disable tests and examples for WebAssembly builds
+    set(ZK_BUILD_TESTS OFF FORCE)
+    set(ZK_BUILD_EXAMPLES OFF FORCE)
+    
+    # Create WebAssembly target with modular binding files
+    add_executable(zenkit-wasm 
+        src/wasm/zenkit_wasm.cc
+        src/wasm/bindings_common.cc
+        src/wasm/world_bindings.cc
+        src/wasm/mesh_bindings.cc
+    )
+    target_link_libraries(zenkit-wasm PRIVATE zenkit)
+    
+    # Emscripten-specific settings
+    set_target_properties(zenkit-wasm PROPERTIES
+        LINK_FLAGS "-s WASM=1 -s EXPORT_ES6=1 -s MODULARIZE=1 -s EXPORT_NAME='ZenKit' -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS='[\"_malloc\",\"_free\"]' -s EXPORTED_RUNTIME_METHODS='[\"HEAPU8\"]' --bind"
+        OUTPUT_NAME "zenkit"
+        SUFFIX ".js"
+    )
+    
+    # Set output directory
+    set_target_properties(zenkit-wasm PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/wasm"
+    )
+    
+    # Copy JS as .mjs and test file to build directory for testing
+    add_custom_command(TARGET zenkit-wasm POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy 
+            "${CMAKE_BINARY_DIR}/wasm/zenkit.js" 
+            "${CMAKE_BINARY_DIR}/wasm/zenkit.mjs"
+        COMMAND ${CMAKE_COMMAND} -E copy 
+            "${CMAKE_SOURCE_DIR}/examples/test-world.mjs" 
+            "${CMAKE_BINARY_DIR}/wasm/test-world.mjs"
+        COMMAND ${CMAKE_COMMAND} -E copy 
+            "${CMAKE_SOURCE_DIR}/examples/test-mesh.mjs" 
+            "${CMAKE_BINARY_DIR}/wasm/test-mesh.mjs"
+        COMMENT "Copying WASM files and examples to build directory"
+    )
 endif ()
