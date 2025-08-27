@@ -187,11 +187,10 @@ if (ZK_BUILD_WASM)
     set(ZK_BUILD_EXAMPLES OFF FORCE)
     
     # Create WebAssembly target with modular binding files
-    add_executable(zenkit-wasm 
+        add_executable(zenkit-wasm
         src/wasm/zenkit_wasm.cc
         src/wasm/bindings_common.cc
         src/wasm/world_bindings.cc
-        src/wasm/mesh_bindings.cc
     )
     target_link_libraries(zenkit-wasm PRIVATE zenkit)
     
