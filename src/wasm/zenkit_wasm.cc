@@ -85,16 +85,18 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
         .field("index", &ArchiveObjectData::index);
 
     // Bounding box data structure
-    value_object<ReadArchiveWrapper::BoundingBoxData>("BoundingBoxData")
-        .field("min", &ReadArchiveWrapper::BoundingBoxData::min)
-        .field("max", &ReadArchiveWrapper::BoundingBoxData::max);
+    value_object<BoundingBoxData>("BoundingBoxData")
+        .field("min", &BoundingBoxData::min)
+        .field("max", &BoundingBoxData::max);
 
     // Matrix 3x3 data structure
-    value_object<Matrix3x3Data>("Matrix3x3Data");
+    class_<Matrix3x3Data>("Matrix3x3Data")
+        .function("get", &Matrix3x3Data::get);
 
     // Raw data result structure
-    value_object<ReadArchiveWrapper::RawDataResult>("RawDataResult")
-        .field("data", &ReadArchiveWrapper::RawDataResult::data);
+    class_<RawDataResult>("RawDataResult")
+        .property("data", &RawDataResult::data)
+        .function("readUbyte", &RawDataResult::read_ubyte);
 
     // ReadArchive wrapper
     class_<ReadArchiveWrapper>("ReadArchive")

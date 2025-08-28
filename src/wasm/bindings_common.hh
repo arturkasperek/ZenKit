@@ -46,7 +46,7 @@ namespace zenkit::wasm {
     std::unique_ptr<zenkit::Read> create_reader_from_buffer(uintptr_t data_ptr, size_t length);
     std::unique_ptr<zenkit::Read> create_reader_from_string(const std::string& buffer);
 
-    // Vector and geometric wrapper classes to preserve C++ structure
+    // Vector and geometric wrapper classes
     struct Vector3 {
         float x, y, z;
         Vector3(float x = 0, float y = 0, float z = 0) : x(x), y(y), z(z) {}
@@ -71,7 +71,6 @@ namespace zenkit::wasm {
             , normal(feature.normal) {}
     };
 
-    // Additional data structures for archive reading
     struct MaterialData {
         std::string name;
         uint8_t group;
@@ -138,383 +137,178 @@ namespace zenkit::wasm {
         }
     };
 
-    // ReadArchive wrapper for WebAssembly
-    class ReadArchiveWrapper {
-    public:
-        explicit ReadArchiveWrapper(std::unique_ptr<zenkit::ReadArchive> archive)
-            : archive_(std::move(archive)) {}
+    struct BoundingBoxData {
+        Vector3 min;
+        Vector3 max;
 
-        // Object reading
-        bool read_object_begin(ArchiveObjectData& obj) {
-            zenkit::ArchiveObject archive_obj;
-            bool result = archive_->read_object_begin(archive_obj);
-            if (result) {
-                obj = ArchiveObjectData(archive_obj);
-            }
-            return result;
-        }
-
-        bool read_object_end() {
-            return archive_->read_object_end();
-        }
-
-        // Basic data reading
-        std::string read_string() {
-            return archive_->read_string();
-        }
-
-        int32_t read_int() {
-            return archive_->read_int();
-        }
-
-        float read_float() {
-            return archive_->read_float();
-        }
-
-        uint8_t read_byte() {
-            return archive_->read_byte();
-        }
-
-        uint16_t read_word() {
-            return archive_->read_word();
-        }
-
-        uint32_t read_enum() {
-            return archive_->read_enum();
-        }
-
-        bool read_bool() {
-            return archive_->read_bool();
-        }
-
-        // Complex data reading
-        ColorData read_color() {
-            return ColorData(archive_->read_color());
-        }
-
-        Vector3 read_vec3() {
-            return Vector3(archive_->read_vec3());
-        }
-
-        Vector2 read_vec2() {
-            return Vector2(archive_->read_vec2());
-        }
-
-        struct BoundingBoxData {
-            Vector3 min;
-            Vector3 max;
-
-            BoundingBoxData() = default;
-            BoundingBoxData(const zenkit::AxisAlignedBoundingBox& bbox)
-                : min(bbox.min), max(bbox.max) {}
-        };
-
-        BoundingBoxData read_bbox() {
-            return BoundingBoxData(archive_->read_bbox());
-        }
-
-        Matrix3x3Data read_mat3x3() {
-            return Matrix3x3Data(archive_->read_mat3x3());
-        }
-
-        // Raw data reading - returns a simple wrapper
-        struct RawDataResult {
-            std::vector<uint8_t> data;
-            uint8_t read_ubyte() {
-                if (data.empty()) return 0;
-                uint8_t value = data[0];
-                data.erase(data.begin());
-                return value;
-            }
-        };
-
-        RawDataResult read_raw(size_t size) {
-            auto raw_reader = archive_->read_raw(size);
-            RawDataResult result;
-            result.data.reserve(size);
-            for (size_t i = 0; i < size; ++i) {
-                result.data.push_back(raw_reader->read_ubyte());
-            }
-            return result;
-        }
-
-        // Skip functionality
-        void skip_object(bool skip_current) {
-            archive_->skip_object(skip_current);
-        }
-
-    private:
-        std::unique_ptr<zenkit::ReadArchive> archive_;
+        BoundingBoxData() = default;
+        BoundingBoxData(const zenkit::AxisAlignedBoundingBox& bbox)
+            : min(bbox.min), max(bbox.max) {}
     };
 
-    // Factory function for creating ReadArchive
-    std::unique_ptr<ReadArchiveWrapper> create_read_archive(uintptr_t data_ptr, size_t length);
-
-    // MeshWrapper class - shared between world and mesh bindings
-    class MeshWrapper {
-    public:
-        explicit MeshWrapper(const zenkit::Mesh& mesh) : mesh_(mesh) {}
-
-        // Expose actual data as properties (not count functions)
-        std::vector<Vector3> getVertices() const {
-            std::vector<Vector3> positions;
-            positions.reserve(mesh_.vertices.size());
-            for (const auto& vertex : mesh_.vertices) {
-                positions.emplace_back(vertex.x, vertex.y, vertex.z);
-            }
-            return positions;
-        }
-
-        std::vector<VertexFeature> getFeatures() const {
-            std::vector<VertexFeature> features;
-            features.reserve(mesh_.features.size());
-            for (const auto& feature : mesh_.features) {
-                features.emplace_back(feature);
-            }
-            return features;
-        }
-
-        std::vector<uint32_t> getVertexIndices() const {
-            return mesh_.polygon_vertex_indices;
-        }
-
-        // Individual feature components for convenience
-        std::vector<Vector3> getNormals() const {
-            std::vector<Vector3> normals;
-            normals.reserve(mesh_.features.size());
-            for (const auto& feature : mesh_.features) {
-                normals.emplace_back(feature.normal);
-            }
-            return normals;
-        }
-
-        std::vector<Vector2> getTextureCoords() const {
-            std::vector<Vector2> uvs;
-            uvs.reserve(mesh_.features.size());
-            for (const auto& feature : mesh_.features) {
-                uvs.emplace_back(feature.texture);
-            }
-            return uvs;
-        }
-
-        std::vector<uint32_t> getLightValues() const {
-            std::vector<uint32_t> lightValues;
-            lightValues.reserve(mesh_.features.size());
-            for (const auto& feature : mesh_.features) {
-                lightValues.push_back(feature.light);
-            }
-            return lightValues;
-        }
-
-        // Bounding box
-        Vector3 getBoundingBoxMin() const {
-            return Vector3(mesh_.bbox.min);
-        }
-
-        Vector3 getBoundingBoxMax() const {
-            return Vector3(mesh_.bbox.max);
-        }
-
-        // Materials
-        std::vector<MaterialData> getMaterials() const {
-            std::vector<MaterialData> materials;
-            materials.reserve(mesh_.materials.size());
-            for (const auto& material : mesh_.materials) {
-                materials.emplace_back(material);
-            }
-            return materials;
-        }
-
-        // Oriented Bounding Box
-        OrientedBoundingBoxData getOrientedBoundingBox() const {
-            return OrientedBoundingBoxData(mesh_.obb);
-        }
-
-        // Basic info (for debugging)
-        std::string getName() const { return mesh_.name; }
-
-    private:
-        const zenkit::Mesh& mesh_;
-    };
-
-    // Forward declaration for World wrapper
-    class WorldWrapper;
-
-} // namespace zenkit::wasm
-
-    // ReadArchive wrapper for WebAssembly
-    class ReadArchiveWrapper {
-    public:
-        explicit ReadArchiveWrapper(std::unique_ptr<zenkit::ReadArchive> archive)
-            : archive_(std::move(archive)) {}
-
-        // Object reading
-        bool read_object_begin(ArchiveObjectData& obj) {
-            zenkit::ArchiveObject archive_obj;
-            bool result = archive_->read_object_begin(archive_obj);
-            if (result) {
-                obj = ArchiveObjectData(archive_obj);
-            }
-            return result;
-        }
-
-        bool read_object_end() {
-            return archive_->read_object_end();
-        }
-
-        // Basic data reading
-        std::string read_string() {
-            return archive_->read_string();
-        }
-
-        int32_t read_int() {
-            return archive_->read_int();
-        }
-
-        float read_float() {
-            return archive_->read_float();
-        }
-
-        uint8_t read_byte() {
-            return archive_->read_byte();
-        }
-
-        uint16_t read_word() {
-            return archive_->read_word();
-        }
-
-        uint32_t read_enum() {
-            return archive_->read_enum();
-        }
-
-        bool read_bool() {
-            return archive_->read_bool();
-        }
-
-        // Complex data reading
-        ColorData read_color() {
-            return ColorData(archive_->read_color());
-        }
-
-        Vector3 read_vec3() {
-            return Vector3(archive_->read_vec3());
-        }
-
-        Vector2 read_vec2() {
-            return Vector2(archive_->read_vec2());
-        }
-
-        struct BoundingBoxData {
-            Vector3 min;
-            Vector3 max;
-
-            BoundingBoxData() = default;
-            BoundingBoxData(const zenkit::AxisAlignedBoundingBox& bbox)
-                : min(bbox.min), max(bbox.max) {}
-        };
-
-        BoundingBoxData read_bbox() {
-            return BoundingBoxData(archive_->read_bbox());
-        }
-
-        Matrix3x3Data read_mat3x3() {
-            return Matrix3x3Data(archive_->read_mat3x3());
-        }
-
-        // Raw data reading - returns a simple wrapper
-        struct RawDataResult {
-            std::vector<uint8_t> data;
-            uint8_t read_ubyte() {
-                if (data.empty()) return 0;
-                uint8_t value = data[0];
-                data.erase(data.begin());
-                return value;
-            }
-        };
-
-        RawDataResult read_raw(size_t size) {
-            auto raw_reader = archive_->read_raw(size);
-            RawDataResult result;
-            result.data.reserve(size);
-            for (size_t i = 0; i < size; ++i) {
-                result.data.push_back(raw_reader->read_ubyte());
-            }
-            return result;
-        }
-
-        // Skip functionality
-        void skip_object(bool skip_current) {
-            archive_->skip_object(skip_current);
-        }
-
-    private:
-        std::unique_ptr<zenkit::ReadArchive> archive_;
-    };
-
-    // Factory function for creating ReadArchive
-    std::unique_ptr<ReadArchiveWrapper> create_read_archive(uintptr_t data_ptr, size_t length);
-
-    // MeshWrapper class - shared between world and mesh bindings
-    class MeshWrapper {
-    public:
-        explicit MeshWrapper(const zenkit::Mesh& mesh) : mesh_(mesh) {}
-
-        // Expose actual data as properties (not count functions)
-        std::vector<Vector3> getVertices() const {
-            std::vector<Vector3> positions;
-            positions.reserve(mesh_.vertices.size());
-            for (const auto& vertex : mesh_.vertices) {
-                positions.emplace_back(vertex.x, vertex.y, vertex.z);
-            }
-            return positions;
-        }
-
-        std::vector<VertexFeature> getFeatures() const {
-            std::vector<VertexFeature> features;
-            features.reserve(mesh_.features.size());
-            for (const auto& feature : mesh_.features) {
-                features.emplace_back(feature);
-            }
-            return features;
-        }
-
-        std::vector<uint32_t> getVertexIndices() const {
-            return mesh_.polygon_vertex_indices;
-        }
-
-        // Individual feature components for convenience
-        std::vector<Vector3> getNormals() const {
-            std::vector<Vector3> normals;
-            normals.reserve(mesh_.features.size());
-            for (const auto& feature : mesh_.features) {
-                normals.emplace_back(feature.normal);
-            }
-            return normals;
-        }
-
-        std::vector<Vector2> getTextureCoords() const {
-            std::vector<Vector2> uvs;
-            uvs.reserve(mesh_.features.size());
-            for (const auto& feature : mesh_.features) {
-                uvs.emplace_back(feature.texture);
-            }
-            return uvs;
-        }
-
-        std::vector<uint32_t> getLightValues() const {
-            std::vector<uint32_t> lightValues;
-            lightValues.reserve(mesh_.features.size());
-            for (const auto& feature : mesh_.features) {
-                lightValues.push_back(feature.light);
-            }
-            return lightValues;
-        }
-
-        // Bounding box
-        Vector3 getBoundingBoxMin() const {
-            return Vector3(mesh_.bbox.min);
-        }
+    struct RawDataResult {
+        std::vector<uint8_t> data;
+        size_t position = 0;
         
+        uint8_t read_ubyte() {
+            if (position >= data.size()) return 0;
+            return data[position++];
+        }
+    };
+
+    // ReadArchive wrapper for WebAssembly
+    class ReadArchiveWrapper {
+    public:
+        explicit ReadArchiveWrapper(std::unique_ptr<zenkit::ReadArchive> archive)
+            : archive_(std::move(archive)) {}
+
+        // Object reading
+        bool read_object_begin(ArchiveObjectData& obj) {
+            zenkit::ArchiveObject archive_obj;
+            bool result = archive_->read_object_begin(archive_obj);
+            if (result) {
+                obj = ArchiveObjectData(archive_obj);
+            }
+            return result;
+        }
+
+        bool read_object_end() {
+            return archive_->read_object_end();
+        }
+
+        // Basic data reading
+        std::string read_string() {
+            return archive_->read_string();
+        }
+
+        int32_t read_int() {
+            return archive_->read_int();
+        }
+
+        float read_float() {
+            return archive_->read_float();
+        }
+
+        uint8_t read_byte() {
+            return archive_->read_byte();
+        }
+
+        uint16_t read_word() {
+            return archive_->read_word();
+        }
+
+        uint32_t read_enum() {
+            return archive_->read_enum();
+        }
+
+        bool read_bool() {
+            return archive_->read_bool();
+        }
+
+        // Complex data reading
+        ColorData read_color() {
+            return ColorData(archive_->read_color());
+        }
+
+        Vector3 read_vec3() {
+            return Vector3(archive_->read_vec3());
+        }
+
+        Vector2 read_vec2() {
+            return Vector2(archive_->read_vec2());
+        }
+
+        BoundingBoxData read_bbox() {
+            return BoundingBoxData(archive_->read_bbox());
+        }
+
+        Matrix3x3Data read_mat3x3() {
+            return Matrix3x3Data(archive_->read_mat3x3());
+        }
+
+        RawDataResult read_raw(size_t size) {
+            auto raw_reader = archive_->read_raw(size);
+            RawDataResult result;
+            result.data.reserve(size);
+            for (size_t i = 0; i < size; ++i) {
+                result.data.push_back(raw_reader->read_ubyte());
+            }
+            return result;
+        }
+
+        // Skip functionality
+        void skip_object(bool skip_current) {
+            archive_->skip_object(skip_current);
+        }
+
+    private:
+        std::unique_ptr<zenkit::ReadArchive> archive_;
+    };
+
+    // Factory function for creating ReadArchive
+    std::unique_ptr<ReadArchiveWrapper> create_read_archive(uintptr_t data_ptr, size_t length);
+
+    // MeshWrapper class - shared between world and mesh bindings
+    class MeshWrapper {
+    public:
+        explicit MeshWrapper(const zenkit::Mesh& mesh) : mesh_(mesh) {}
+
+        // Expose actual data as properties (not count functions)
+        std::vector<Vector3> getVertices() const {
+            std::vector<Vector3> positions;
+            positions.reserve(mesh_.vertices.size());
+            for (const auto& vertex : mesh_.vertices) {
+                positions.emplace_back(vertex.x, vertex.y, vertex.z);
+            }
+            return positions;
+        }
+
+        std::vector<VertexFeature> getFeatures() const {
+            std::vector<VertexFeature> features;
+            features.reserve(mesh_.features.size());
+            for (const auto& feature : mesh_.features) {
+                features.emplace_back(feature);
+            }
+            return features;
+        }
+
+        std::vector<uint32_t> getVertexIndices() const {
+            return mesh_.polygon_vertex_indices;
+        }
+
+        // Individual feature components for convenience
+        std::vector<Vector3> getNormals() const {
+            std::vector<Vector3> normals;
+            normals.reserve(mesh_.features.size());
+            for (const auto& feature : mesh_.features) {
+                normals.emplace_back(feature.normal);
+            }
+            return normals;
+        }
+
+        std::vector<Vector2> getTextureCoords() const {
+            std::vector<Vector2> uvs;
+            uvs.reserve(mesh_.features.size());
+            for (const auto& feature : mesh_.features) {
+                uvs.emplace_back(feature.texture);
+            }
+            return uvs;
+        }
+
+        std::vector<uint32_t> getLightValues() const {
+            std::vector<uint32_t> lightValues;
+            lightValues.reserve(mesh_.features.size());
+            for (const auto& feature : mesh_.features) {
+                lightValues.push_back(feature.light);
+            }
+            return lightValues;
+        }
+
+        // Bounding box
+        Vector3 getBoundingBoxMin() const {
+            return Vector3(mesh_.bbox.min);
+        }
+
         Vector3 getBoundingBoxMax() const {
             return Vector3(mesh_.bbox.max);
         }
