@@ -105,11 +105,22 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("light", &VertexFeature::light)
         .field("normal", &VertexFeature::normal);
 
+    value_object<MaterialData>("MaterialData")
+        .field("name", &MaterialData::name)
+        .field("group", &MaterialData::group)
+        .field("texture", &MaterialData::texture);
+
+    value_object<OrientedBoundingBoxData>("OrientedBoundingBoxData")
+        .field("center", &OrientedBoundingBoxData::center)
+        .field("axes", &OrientedBoundingBoxData::axes)
+        .field("half_width", &OrientedBoundingBoxData::half_width);
+
     // Register vector types
     register_vector<Vector3>("VectorVector3");
     register_vector<Vector2>("VectorVector2");
     register_vector<VertexFeature>("VectorVertexFeature");
     register_vector<uint32_t>("VectorUint32");
+    register_vector<MaterialData>("VectorMaterialData");
 
     // MeshData - expose actual data as properties
     class_<MeshWrapper>("MeshData")
@@ -119,8 +130,10 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .property("normals", &MeshWrapper::getNormals)
         .property("textureCoords", &MeshWrapper::getTextureCoords)
         .property("lightValues", &MeshWrapper::getLightValues)
+        .property("materials", &MeshWrapper::getMaterials)
         .property("boundingBoxMin", &MeshWrapper::getBoundingBoxMin)
         .property("boundingBoxMax", &MeshWrapper::getBoundingBoxMax)
+        .property("orientedBoundingBox", &MeshWrapper::getOrientedBoundingBox)
         .property("name", &MeshWrapper::getName);
 
     // Main World wrapper - properties instead of count functions

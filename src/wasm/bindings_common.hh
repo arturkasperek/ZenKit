@@ -62,12 +62,40 @@ namespace zenkit::wasm {
         Vector2 texture;
         uint32_t light;
         Vector3 normal;
-        
+
         VertexFeature() = default;
-        VertexFeature(const zenkit::VertexFeature& feature) 
+        VertexFeature(const zenkit::VertexFeature& feature)
             : texture(feature.texture)
             , light(feature.light)
             , normal(feature.normal) {}
+    };
+
+    struct MaterialData {
+        std::string name;
+        uint8_t group;
+        std::string texture;
+
+        MaterialData() = default;
+        MaterialData(const zenkit::Material& material)
+            : name(material.name)
+            , group(static_cast<uint8_t>(material.group))
+            , texture(material.texture) {}
+    };
+
+    struct OrientedBoundingBoxData {
+        Vector3 center;
+        std::vector<Vector3> axes;
+        Vector3 half_width;
+
+        OrientedBoundingBoxData() = default;
+        OrientedBoundingBoxData(const zenkit::OrientedBoundingBox& obb)
+            : center(obb.center)
+            , half_width(obb.half_width) {
+            axes.reserve(3);
+            for (int i = 0; i < 3; ++i) {
+                axes.emplace_back(obb.axes[i]);
+            }
+        }
     };
 
     // MeshWrapper class - shared between world and mesh bindings
@@ -133,6 +161,21 @@ namespace zenkit::wasm {
         
         Vector3 getBoundingBoxMax() const {
             return Vector3(mesh_.bbox.max);
+        }
+
+        // Materials
+        std::vector<MaterialData> getMaterials() const {
+            std::vector<MaterialData> materials;
+            materials.reserve(mesh_.materials.size());
+            for (const auto& material : mesh_.materials) {
+                materials.emplace_back(material);
+            }
+            return materials;
+        }
+
+        // Oriented Bounding Box
+        OrientedBoundingBoxData getOrientedBoundingBox() const {
+            return OrientedBoundingBoxData(mesh_.obb);
         }
 
         // Basic info (for debugging)

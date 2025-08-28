@@ -75,12 +75,14 @@ global.loadFileIntoWasm = (filepath, zenkitInstance) => {
 
     const fileBuffer = fs.readFileSync(filepath);
     const uint8Array = new Uint8Array(fileBuffer);
-    const wasmMemory = zenkitInstance._malloc(uint8Array.length);
-    zenkitInstance.HEAPU8.set(uint8Array, wasmMemory);
+
+    // Access WASM memory functions through the zenkit instance (which is the actual WASM module)
+    const wasmMemory = global.zenkitInstance._malloc(uint8Array.length);
+    global.zenkitInstance.HEAPU8.set(uint8Array, wasmMemory);
 
     return {
         pointer: wasmMemory,
         size: uint8Array.length,
-        cleanup: () => zenkitInstance._free(wasmMemory)
+        cleanup: () => global.zenkitInstance._free(wasmMemory)
     };
 };
