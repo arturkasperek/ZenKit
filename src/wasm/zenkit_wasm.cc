@@ -64,3 +64,57 @@ EMSCRIPTEN_BINDINGS(zenkit_main) {
     function("getZenKitVersion", &getZenKitVersion);
     function("getLibraryInfo", &getLibraryInfo);
 }
+
+// Archive reading bindings
+EMSCRIPTEN_BINDINGS(zenkit_archive) {
+    using namespace zenkit::wasm;
+    using namespace emscripten;
+
+    // Color data structure
+    value_object<ColorData>("ColorData")
+        .field("r", &ColorData::r)
+        .field("g", &ColorData::g)
+        .field("b", &ColorData::b)
+        .field("a", &ColorData::a);
+
+    // Archive object data structure
+    value_object<ArchiveObjectData>("ArchiveObjectData")
+        .field("objectName", &ArchiveObjectData::object_name)
+        .field("className", &ArchiveObjectData::class_name)
+        .field("version", &ArchiveObjectData::version)
+        .field("index", &ArchiveObjectData::index);
+
+    // Bounding box data structure
+    value_object<ReadArchiveWrapper::BoundingBoxData>("BoundingBoxData")
+        .field("min", &ReadArchiveWrapper::BoundingBoxData::min)
+        .field("max", &ReadArchiveWrapper::BoundingBoxData::max);
+
+    // Matrix 3x3 data structure
+    value_object<Matrix3x3Data>("Matrix3x3Data");
+
+    // Raw data result structure
+    value_object<ReadArchiveWrapper::RawDataResult>("RawDataResult")
+        .field("data", &ReadArchiveWrapper::RawDataResult::data);
+
+    // ReadArchive wrapper
+    class_<ReadArchiveWrapper>("ReadArchive")
+        .function("readObjectBegin", &ReadArchiveWrapper::read_object_begin)
+        .function("readObjectEnd", &ReadArchiveWrapper::read_object_end)
+        .function("readString", &ReadArchiveWrapper::read_string)
+        .function("readInt", &ReadArchiveWrapper::read_int)
+        .function("readFloat", &ReadArchiveWrapper::read_float)
+        .function("readByte", &ReadArchiveWrapper::read_byte)
+        .function("readWord", &ReadArchiveWrapper::read_word)
+        .function("readEnum", &ReadArchiveWrapper::read_enum)
+        .function("readBool", &ReadArchiveWrapper::read_bool)
+        .function("readColor", &ReadArchiveWrapper::read_color)
+        .function("readVec3", &ReadArchiveWrapper::read_vec3)
+        .function("readVec2", &ReadArchiveWrapper::read_vec2)
+        .function("readBbox", &ReadArchiveWrapper::read_bbox)
+        .function("readMat3x3", &ReadArchiveWrapper::read_mat3x3)
+        .function("readRaw", &ReadArchiveWrapper::read_raw)
+        .function("skipObject", &ReadArchiveWrapper::skip_object);
+
+    // Factory function
+    function("createReadArchive", &create_read_archive, allow_raw_pointers());
+}

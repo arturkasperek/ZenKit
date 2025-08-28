@@ -17,4 +17,10 @@ namespace zenkit::wasm {
         return zenkit::Read::from(std::move(data));
     }
 
+    std::unique_ptr<ReadArchiveWrapper> create_read_archive(uintptr_t data_ptr, size_t length) {
+        auto reader = create_reader_from_buffer(data_ptr, length);
+        auto archive = zenkit::ReadArchive::from(reader.get());
+        return std::make_unique<ReadArchiveWrapper>(std::move(archive));
+    }
+
 } // namespace zenkit::wasm

@@ -5,6 +5,7 @@
  */
 
 // Simplified for Jest compatibility
+import fs from 'fs';
 
 describe('ZenKit World', () => {
     let zenkit;
@@ -203,3 +204,78 @@ describe('ZenKit World', () => {
     });
 });
 
+describe('Archive File Loading (ascii.zen)', () => {
+    test('should successfully load ascii.zen file into WASM memory', async () => {
+        // First initialize ZenKit
+        const zenkit = await setupZenKit();
+
+        const zenFilePath = getTestDataPath('ascii.zen');
+        const zenData = loadFileIntoWasm(zenFilePath, zenkit);
+
+        try {
+            // Test that file was loaded successfully
+            expect(zenData.pointer).toBeGreaterThan(0);
+            expect(zenData.size).toBeGreaterThan(0);
+            expect(typeof zenData.cleanup).toBe('function');
+
+            // Verify file content by checking file size matches expected
+            const expectedSize = fs.statSync(zenFilePath).size;
+            expect(zenData.size).toBe(expectedSize);
+
+            console.log(`Successfully loaded ascii.zen: ${zenData.size} bytes at pointer ${zenData.pointer}`);
+
+        } finally {
+            zenData.cleanup();
+        }
+    });
+
+    test('should handle file loading errors gracefully', async () => {
+        // First initialize ZenKit
+        const zenkit = await setupZenKit();
+
+        // Test with non-existent file
+        const nonExistentPath = getTestDataPath('nonexistent.zen');
+
+        expect(() => {
+            loadFileIntoWasm(nonExistentPath, zenkit);
+        }).toThrow('Test file not found');
+
+        // Test with valid file path
+        const zenFilePath = getTestDataPath('ascii.zen');
+        const zenData = loadFileIntoWasm(zenFilePath, zenkit);
+
+        try {
+            // Verify memory allocation worked
+            expect(zenData.pointer).toBeDefined();
+            expect(zenData.pointer).not.toBeNull();
+            expect(zenData.pointer).toBeGreaterThan(0);
+
+        } finally {
+            zenData.cleanup();
+        }
+    });
+
+    test('should demonstrate ZenKit WASM module functionality', async () => {
+        // First initialize ZenKit
+        const zenkit = await setupZenKit();
+
+        // Test that ZenKit module has expected functions
+        expect(zenkit).toBeDefined();
+        expect(typeof zenkit.getZenKitVersion).toBe('function');
+
+        // Test version function
+        const version = zenkit.getZenKitVersion();
+        expect(typeof version).toBe('string');
+        expect(version.length).toBeGreaterThan(0);
+
+        console.log(`ZenKit WASM version: ${version}`);
+
+        // Test library info
+        const libInfo = zenkit.getLibraryInfo();
+        expect(libInfo).toBeDefined();
+        expect(libInfo).toHaveProperty('version');
+        expect(libInfo).toHaveProperty('buildType');
+
+        console.log(`ZenKit library info:`, libInfo);
+    });
+});
