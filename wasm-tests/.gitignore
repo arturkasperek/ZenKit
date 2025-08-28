@@ -1,0 +1,12 @@
+# Test output and coverage
+coverage/
+test-results/
+*.log
+
+# Node modules (if present in this directory)
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+

@@ -1,0 +1,59 @@
+{
+  "name": "zenkit-wasm-tests",
+  "version": "1.0.0",
+  "description": "Jest tests for ZenKit WebAssembly bindings",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings' jest"
+  },
+  "jest": {
+    "preset": "./jest-preset-esm.mjs",
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/wasm-tests/**/*.test.mjs",
+      "<rootDir>/wasm-tests/**/*.spec.mjs"
+    ],
+    "setupFilesAfterEnv": [
+      "<rootDir>/wasm-tests/jest-setup.mjs"
+    ],
+    "moduleFileExtensions": [
+      "mjs",
+      "js",
+      "json"
+    ],
+
+    "globals": {
+      "__DEV__": true
+    },
+    "transform": {},
+    "transformIgnorePatterns": [
+      "build-wasm/wasm/zenkit\\.mjs$"
+    ],
+    "collectCoverageFrom": [
+      "wasm-tests/**/*.mjs",
+      "!wasm-tests/setup.mjs",
+      "!wasm-tests/jest-setup.mjs",
+      "!**/node_modules/**"
+    ],
+    "testTimeout": 60000,
+    "reporters": [
+      "default",
+      ["jest-junit", {
+        "outputDirectory": "test-results/wasm-tests",
+        "outputName": "junit.xml"
+      }]
+    ]
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0",
+    "jest-environment-node": "^29.7.0",
+    "jest-junit": "^16.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
