@@ -64,3 +64,4 @@ jobs:
         run: 'emcmake cmake -B build-wasm -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DZK_BUILD_WASM=ON && emcmake cmake --build build-wasm'
       - name: 'Run Jest tests'
         run: 'npm test'
+
