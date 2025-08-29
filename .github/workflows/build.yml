@@ -28,12 +28,10 @@ jobs:
       - name: 'Test'
         working-directory: 'build/'
         run: 'ctest --output-on-failure'
-      - name: 'Setup Python'
-        uses: 'actions/setup-python@v4'
-        with:
-          python-version: '3.9'
       - name: 'Install Emscripten'
         run: |
+          python3 --version
+          python --version
           git clone https://github.com/emscripten-core/emsdk.git
           cd emsdk
           ./emsdk install latest
@@ -68,10 +66,6 @@ jobs:
       - name: 'Test'
         working-directory: 'build/'
         run: 'ctest -C Release --output-on-failure'
-      - name: 'Setup Python'
-        uses: 'actions/setup-python@v4'
-        with:
-          python-version: '3.9'
       - name: 'Install Emscripten'
         shell: 'bash'
         run: |
