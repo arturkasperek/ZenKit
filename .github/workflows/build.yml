@@ -28,6 +28,16 @@ jobs:
       - name: 'Test'
         working-directory: 'build/'
         run: 'ctest --output-on-failure'
+      - name: 'Setup Node.js'
+        uses: 'actions/setup-node@v3'
+        with:
+          node-version: '24'
+      - name: 'Install dependencies'
+        run: 'npm install'
+      - name: 'Build WASM'
+        run: 'emcmake cmake -B build-wasm -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DZK_BUILD_WASM=ON && emcmake cmake --build build-wasm'
+      - name: 'Run Jest tests'
+        run: 'npm test'
 
   windows:
     name: "Windows"
@@ -44,3 +54,13 @@ jobs:
       - name: 'Test'
         working-directory: 'build/'
         run: 'ctest -C Release --output-on-failure'
+      - name: 'Setup Node.js'
+        uses: 'actions/setup-node@v3'
+        with:
+          node-version: '24'
+      - name: 'Install dependencies'
+        run: 'npm install'
+      - name: 'Build WASM'
+        run: 'emcmake cmake -B build-wasm -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DZK_BUILD_WASM=ON && emcmake cmake --build build-wasm'
+      - name: 'Run Jest tests'
+        run: 'npm test'
