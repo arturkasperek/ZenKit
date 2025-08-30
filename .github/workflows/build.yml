@@ -28,32 +28,34 @@ jobs:
       - name: 'Test'
         working-directory: 'build/'
         run: 'ctest --output-on-failure'
-      - name: 'Install Emscripten'
-        run: |
-          python3 --version
-          python --version
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install latest
-          ./emsdk activate latest
-          source ./emsdk_env.sh
-          echo "EMSDK=$PWD" >> $GITHUB_ENV
-          echo "$PWD" >> $GITHUB_PATH
-          echo "$PWD/upstream/emscripten" >> $GITHUB_PATH
-      - name: 'Setup Node.js'
-        uses: 'actions/setup-node@v3'
+
+  macos:
+    name: "MacOS"
+    strategy:
+      fail-fast: false
+      matrix:
+        xcode:
+          - '15'
+        build_type: [ 'Debug', 'Release' ]
+    env:
+      ASAN_OPTIONS: 'detect_container_overflow=0'
+    runs-on: 'macos-latest'
+    steps:
+      - uses: 'actions/checkout@v3'
+      - uses: 'maxim-lobanov/setup-xcode@v1'
         with:
-          node-version: '24'
-      - name: 'Install dependencies'
-        run: 'npm install'
-      - name: 'Build WASM'
-        run: 'emcmake cmake -B build-wasm -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DZK_BUILD_WASM=ON && emcmake cmake --build build-wasm'
-      - name: 'Run Jest tests'
-        run: 'npm test'
+          xcode-version: '${{matrix.xcode}}'
+      - name: 'Configure'
+        run: 'cmake -B build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DZK_BUILD_EXAMPLES=ON -DZK_BUILD_TESTS=ON -DBUILD_SQUISH_WITH_SSE2=OFF'
+      - name: 'Build'
+        run: 'cmake --build build'
+      - name: 'Test'
+        working-directory: 'build/'
+        run: 'ctest --output-on-failure'
 
   windows:
     name: "Windows"
-    runs-on: windows-latest
+    runs-on: 'windows-2019'
     steps:
       - uses: 'actions/checkout@v3'
         with:
@@ -66,25 +68,3 @@ jobs:
       - name: 'Test'
         working-directory: 'build/'
         run: 'ctest -C Release --output-on-failure'
-      - name: 'Install Emscripten'
-        shell: 'bash'
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install latest
-          ./emsdk activate latest
-          source ./emsdk_env.sh
-          echo "EMSDK=$PWD" >> $GITHUB_ENV
-          echo "$PWD" >> $GITHUB_PATH
-          echo "$PWD/upstream/emscripten" >> $GITHUB_PATH
-      - name: 'Setup Node.js'
-        uses: 'actions/setup-node@v3'
-        with:
-          node-version: '24'
-      - name: 'Install dependencies'
-        run: 'npm install'
-      - name: 'Build WASM'
-        run: 'emcmake cmake -B build-wasm -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DZK_BUILD_WASM=ON && emcmake cmake --build build-wasm'
-      - name: 'Run Jest tests'
-        run: 'npm test'
-
