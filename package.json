@@ -5,7 +5,10 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings' jest"
+    "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings' jest",
+    "build:wasm": "emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release -DZK_BUILD_WASM=ON && cmake --build build-wasm",
+    "build:debug": "emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Debug -DZK_BUILD_WASM=ON && cmake --build build-wasm",
+    "clean:wasm": "rm -rf build-wasm"
   },
   "jest": {
     "preset": "./jest-preset-esm.mjs",

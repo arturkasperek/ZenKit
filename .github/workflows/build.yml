@@ -55,7 +55,7 @@ jobs:
 
   windows:
     name: "Windows"
-    runs-on: 'windows-2019'
+    runs-on: 'windows-latest'
     steps:
       - uses: 'actions/checkout@v3'
         with:
@@ -68,3 +68,21 @@ jobs:
       - name: 'Test'
         working-directory: 'build/'
         run: 'ctest -C Release --output-on-failure'
+
+  wasm:
+    name: "WebAssembly"
+    runs-on: 'ubuntu-latest'
+    container:
+      image: 'emscripten/emsdk:4.0.13'
+    steps:
+      - uses: 'actions/checkout@v3'
+      - name: 'Setup Node.js'
+        uses: 'actions/setup-node@v4'
+        with:
+          node-version: '24'
+      - name: 'Install dependencies'
+        run: 'npm install'
+      - name: 'Build WASM'
+        run: 'npm run build:wasm'
+      - name: 'Run Jest tests'
+        run: 'npm test'
