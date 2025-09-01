@@ -4,9 +4,9 @@ project(ZenKit VERSION 1.3.0)
 set(CMAKE_CXX_STANDARD 17)
 
 # Detect if we're building with Emscripten
-if (CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+if (CMAKE_SYSTEM_NAME STREQUAL "Emscripten" OR EMSCRIPTEN)
     set(EMSCRIPTEN TRUE)
-    message(STATUS "ZenKit: Emscripten detected")
+    message(STATUS "ZenKit: Emscripten detected (${CMAKE_SYSTEM_NAME})")
     # Auto-enable WebAssembly build and disable incompatible features
     set(ZK_BUILD_WASM ON)
     set(ZK_BUILD_TESTS OFF)
@@ -153,7 +153,9 @@ if (ZK_ENABLE_INSTALL)
 endif ()
 
 # when building tests, create a test executable and load it into CTest
-if (ZK_BUILD_TESTS AND CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+# Never build tests on Emscripten (WebAssembly builds)
+if (ZK_BUILD_TESTS AND CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR AND NOT EMSCRIPTEN)
+    message(STATUS "ZenKit: Building test suite")
     enable_testing()
     include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
 
@@ -163,6 +165,8 @@ if (ZK_BUILD_TESTS AND CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     target_link_options(test-zenkit PUBLIC ${_ZK_LINK_FLAGS})
 
     doctest_discover_tests(test-zenkit EXTRA_ARGS -tse=CutsceneLibrary,DaedalusScript,World WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests)
+elseif (EMSCRIPTEN)
+    message(STATUS "ZenKit: Skipping test suite build for Emscripten/WebAssembly")
 endif ()
 
 # when building examples, include the subdirectory
