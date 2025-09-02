@@ -51,6 +51,6 @@ jobs:
       - name: Package and publish
         run: |
           cd build-wasm/wasm
-          npm publish
+          npm publish --access public
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
