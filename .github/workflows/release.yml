@@ -25,6 +25,29 @@ jobs:
       - run: npm install
       - run: npm run build:wasm
 
+      - name: Extract version from tag
+        id: extract_version
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update package.json version
+        run: |
+          cd build-wasm/wasm
+          # Update version in package.json using Node.js
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${{ steps.extract_version.outputs.version }}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
       - name: Package and publish
         run: |
           cd build-wasm/wasm

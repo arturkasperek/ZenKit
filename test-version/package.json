@@ -1,0 +1,88 @@
+{
+  "name": "@arturkasperek/zenkit",
+  "version": "2.1.3",
+  "description": "ZenKit WebAssembly bindings for parsing Gothic game files",
+  "main": "zenkit.mjs",
+  "module": "zenkit.mjs",
+  "types": "zenkit.d.ts",
+  "files": [
+    "zenkit.js",
+    "zenkit.mjs",
+    "zenkit.wasm",
+    "zenkit.d.ts"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arturkasperek/zenkit.git"
+  },
+  "author": "arturkasperek",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "gothic",
+    "zenkit",
+    "webassembly",
+    "wasm",
+    "game-files",
+    "parser"
+  ],
+  "scripts": {
+    "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings' jest",
+    "build:wasm": "emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release -DZK_BUILD_WASM=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build-wasm && cp package.json build-wasm/wasm/ && cp zenkit.d.ts build-wasm/wasm/ && cp .npmrc build-wasm/wasm/",
+    "build:debug": "emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Debug -DZK_BUILD_WASM=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build-wasm && cp package.json build-wasm/wasm/ && cp zenkit.d.ts build-wasm/wasm/ && cp .npmrc build-wasm/wasm/",
+    "clean:wasm": "rm -rf build-wasm"
+  },
+  "jest": {
+    "preset": "./jest-preset-esm.mjs",
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/wasm-tests/**/*.test.mjs",
+      "<rootDir>/wasm-tests/**/*.spec.mjs"
+    ],
+    "setupFilesAfterEnv": [
+      "<rootDir>/wasm-tests/jest-setup.mjs"
+    ],
+    "moduleFileExtensions": [
+      "mjs",
+      "js",
+      "json"
+    ],
+    "globals": {
+      "__DEV__": true
+    },
+    "transform": {},
+    "transformIgnorePatterns": [
+      "build-wasm/wasm/zenkit\\.mjs$"
+    ],
+    "collectCoverageFrom": [
+      "wasm-tests/**/*.mjs",
+      "!wasm-tests/setup.mjs",
+      "!wasm-tests/jest-setup.mjs",
+      "!**/node_modules/**"
+    ],
+    "testTimeout": 60000,
+    "reporters": [
+      "default",
+      [
+        "jest-junit",
+        {
+          "outputDirectory": "test-results/wasm-tests",
+          "outputName": "junit.xml"
+        }
+      ]
+    ]
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0",
+    "jest-environment-node": "^29.7.0",
+    "jest-junit": "^16.0.0"
+  }
+}
