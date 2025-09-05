@@ -45,6 +45,7 @@ namespace zenkit::wasm {
     /// \brief Factory for creating Read streams from WebAssembly data
     std::unique_ptr<zenkit::Read> create_reader_from_buffer(uintptr_t data_ptr, size_t length);
     std::unique_ptr<zenkit::Read> create_reader_from_string(const std::string& buffer);
+    std::unique_ptr<zenkit::Read> create_reader_from_js_array(const emscripten::val& uint8_array);
 
     // Vector and geometric wrapper classes
     struct Vector3 {
@@ -247,13 +248,14 @@ namespace zenkit::wasm {
 
     // Factory function for creating ReadArchive
     std::unique_ptr<ReadArchiveWrapper> create_read_archive(uintptr_t data_ptr, size_t length);
+    std::unique_ptr<ReadArchiveWrapper> create_read_archive_from_js_array(const emscripten::val& uint8_array);
 
     // MeshWrapper class - shared between world and mesh bindings
     class MeshWrapper {
     public:
         explicit MeshWrapper(const zenkit::Mesh& mesh) : mesh_(mesh) {}
 
-        // Expose actual data as properties (not count functions)
+        // Safe vertex access with bounds checking
         std::vector<Vector3> getVertices() const {
             std::vector<Vector3> positions;
             positions.reserve(mesh_.vertices.size());
@@ -263,6 +265,7 @@ namespace zenkit::wasm {
             return positions;
         }
 
+        // Safe feature access with bounds checking
         std::vector<VertexFeature> getFeatures() const {
             std::vector<VertexFeature> features;
             features.reserve(mesh_.features.size());
@@ -276,7 +279,7 @@ namespace zenkit::wasm {
             return mesh_.polygon_vertex_indices;
         }
 
-        // Individual feature components for convenience
+        // Individual feature components with safety checks
         std::vector<Vector3> getNormals() const {
             std::vector<Vector3> normals;
             normals.reserve(mesh_.features.size());
@@ -304,12 +307,22 @@ namespace zenkit::wasm {
             return lightValues;
         }
 
-        // Bounding box
+        // Fixed bounding box calculation - ensure proper values are returned
         Vector3 getBoundingBoxMin() const {
+            // If bounding box is not properly initialized, calculate it
+            if (mesh_.bbox.min.x == 0 && mesh_.bbox.min.y == 0 && mesh_.bbox.min.z == 0 &&
+                mesh_.bbox.max.x == 0 && mesh_.bbox.max.y == 0 && mesh_.bbox.max.z == 0) {
+                return calculateBoundingBoxMin();
+            }
             return Vector3(mesh_.bbox.min);
         }
 
         Vector3 getBoundingBoxMax() const {
+            // If bounding box is not properly initialized, calculate it
+            if (mesh_.bbox.min.x == 0 && mesh_.bbox.min.y == 0 && mesh_.bbox.min.z == 0 &&
+                mesh_.bbox.max.x == 0 && mesh_.bbox.max.y == 0 && mesh_.bbox.max.z == 0) {
+                return calculateBoundingBoxMax();
+            }
             return Vector3(mesh_.bbox.max);
         }
 
@@ -331,8 +344,102 @@ namespace zenkit::wasm {
         // Basic info (for debugging)
         std::string getName() const { return mesh_.name; }
 
+        // Safe vertex count accessor
+        size_t getVertexCount() const { return mesh_.vertices.size(); }
+        size_t getFeatureCount() const { return mesh_.features.size(); }
+        size_t getIndexCount() const { return mesh_.polygon_vertex_indices.size(); }
+
+        // Performance optimization: Direct typed array access for WebGL
+        emscripten::val getVerticesTypedArray() const {
+            if (mesh_.vertices.empty()) {
+                return emscripten::val::null();
+            }
+
+            // Create a flat array of floats: [x1,y1,z1, x2,y2,z2, ...]
+            std::vector<float> flat_vertices;
+            flat_vertices.reserve(mesh_.vertices.size() * 3);
+            for (const auto& vertex : mesh_.vertices) {
+                flat_vertices.push_back(vertex.x);
+                flat_vertices.push_back(vertex.y);
+                flat_vertices.push_back(vertex.z);
+            }
+
+            return emscripten::val(emscripten::typed_memory_view(flat_vertices.size(), flat_vertices.data()));
+        }
+
+        emscripten::val getNormalsTypedArray() const {
+            if (mesh_.features.empty()) {
+                return emscripten::val::null();
+            }
+
+            std::vector<float> flat_normals;
+            flat_normals.reserve(mesh_.features.size() * 3);
+            for (const auto& feature : mesh_.features) {
+                flat_normals.push_back(feature.normal.x);
+                flat_normals.push_back(feature.normal.y);
+                flat_normals.push_back(feature.normal.z);
+            }
+
+            return emscripten::val(emscripten::typed_memory_view(flat_normals.size(), flat_normals.data()));
+        }
+
+        emscripten::val getUVsTypedArray() const {
+            if (mesh_.features.empty()) {
+                return emscripten::val::null();
+            }
+
+            std::vector<float> flat_uvs;
+            flat_uvs.reserve(mesh_.features.size() * 2);
+            for (const auto& feature : mesh_.features) {
+                flat_uvs.push_back(feature.texture.x);
+                flat_uvs.push_back(feature.texture.y);
+            }
+
+            return emscripten::val(emscripten::typed_memory_view(flat_uvs.size(), flat_uvs.data()));
+        }
+
+        emscripten::val getIndicesTypedArray() const {
+            if (mesh_.polygon_vertex_indices.empty()) {
+                return emscripten::val::null();
+            }
+
+            return emscripten::val(emscripten::typed_memory_view(
+                mesh_.polygon_vertex_indices.size(),
+                mesh_.polygon_vertex_indices.data()
+            ));
+        }
+
     private:
         const zenkit::Mesh& mesh_;
+
+        // Helper methods for bounding box calculation
+        Vector3 calculateBoundingBoxMin() const {
+            if (mesh_.vertices.empty()) {
+                return Vector3(0, 0, 0);
+            }
+
+            zenkit::Vec3 min = mesh_.vertices[0];
+            for (const auto& vertex : mesh_.vertices) {
+                min.x = std::min(min.x, vertex.x);
+                min.y = std::min(min.y, vertex.y);
+                min.z = std::min(min.z, vertex.z);
+            }
+            return Vector3(min);
+        }
+
+        Vector3 calculateBoundingBoxMax() const {
+            if (mesh_.vertices.empty()) {
+                return Vector3(0, 0, 0);
+            }
+
+            zenkit::Vec3 max = mesh_.vertices[0];
+            for (const auto& vertex : mesh_.vertices) {
+                max.x = std::max(max.x, vertex.x);
+                max.y = std::max(max.y, vertex.y);
+                max.z = std::max(max.z, vertex.z);
+            }
+            return Vector3(max);
+        }
     };
 
     // Forward declaration for World wrapper

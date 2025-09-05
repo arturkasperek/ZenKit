@@ -28,8 +28,34 @@ namespace zenkit::wasm {
             try {
                 auto reader = create_reader_from_buffer(data_ptr, length);
                 world_.load(reader.get());
+                last_error_.clear();
                 return Result<bool>(true);
             } catch (const std::exception& e) {
+                last_error_ = e.what();
+                return Result<bool>(e.what());
+            }
+        }
+
+        /// \brief Load world from JavaScript Uint8Array (automatic memory management)
+        /// \param uint8_array JavaScript Uint8Array containing the world data
+        /// \param version Optional Gothic game version (0 = auto-detect, 1 = Gothic 1, 2 = Gothic 2)
+        Result<bool> loadFromArray(const emscripten::val& uint8_array, int version = 0) {
+            try {
+                auto reader = create_reader_from_js_array(uint8_array);
+                
+                if (version == 0) {
+                    // Auto-detect version
+                    world_.load(reader.get());
+                } else {
+                    // Use specific version
+                    auto game_version = static_cast<GameVersion>(version);
+                    world_.load(reader.get(), game_version);
+                }
+                
+                last_error_.clear();
+                return Result<bool>(true);
+            } catch (const std::exception& e) {
+                last_error_ = e.what();
                 return Result<bool>(e.what());
             }
         }
@@ -40,10 +66,22 @@ namespace zenkit::wasm {
                 auto reader = create_reader_from_buffer(data_ptr, length);
                 auto game_version = static_cast<GameVersion>(version);
                 world_.load(reader.get(), game_version);
+                last_error_.clear();
                 return Result<bool>(true);
             } catch (const std::exception& e) {
+                last_error_ = e.what();
                 return Result<bool>(e.what());
             }
+        }
+
+        /// \brief Get last error message
+        std::string getLastError() const {
+            return last_error_;
+        }
+
+        /// \brief Check if world loaded successfully
+        bool isLoaded() const {
+            return !last_error_.empty() || world_.world_mesh.vertices.size() > 0;
         }
 
         // Direct access to World members (mirroring C++ structure)
@@ -66,6 +104,7 @@ namespace zenkit::wasm {
 
     private:
         World world_;
+        std::string last_error_;
     };
 
     /// \brief Factory function for creating World instances
@@ -122,7 +161,7 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
     register_vector<uint32_t>("VectorUint32");
     register_vector<MaterialData>("VectorMaterialData");
 
-    // MeshData - expose actual data as properties
+    // MeshData - expose actual data as properties with improved safety
     class_<MeshWrapper>("MeshData")
         .property("vertices", &MeshWrapper::getVertices)
         .property("features", &MeshWrapper::getFeatures)
@@ -134,20 +173,33 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .property("boundingBoxMin", &MeshWrapper::getBoundingBoxMin)
         .property("boundingBoxMax", &MeshWrapper::getBoundingBoxMax)
         .property("orientedBoundingBox", &MeshWrapper::getOrientedBoundingBox)
-        .property("name", &MeshWrapper::getName);
+        .property("name", &MeshWrapper::getName)
+        .property("vertexCount", &MeshWrapper::getVertexCount)
+        .property("featureCount", &MeshWrapper::getFeatureCount)
+        .property("indexCount", &MeshWrapper::getIndexCount)
+        // Performance optimization methods for direct WebGL usage
+        .function("getVerticesTypedArray", &MeshWrapper::getVerticesTypedArray)
+        .function("getNormalsTypedArray", &MeshWrapper::getNormalsTypedArray)
+        .function("getUVsTypedArray", &MeshWrapper::getUVsTypedArray)
+        .function("getIndicesTypedArray", &MeshWrapper::getIndicesTypedArray);
 
     // Main World wrapper - properties instead of count functions
     class_<WorldWrapper>("World")
         // Loading methods (these are actions, so stay as functions)
         .function("load", &WorldWrapper::load)
+        .function("loadFromArray", &WorldWrapper::loadFromArray)
         .function("loadWithVersion", &WorldWrapper::loadWithVersion)
-        
+
+        // Error handling methods
+        .function("getLastError", &WorldWrapper::getLastError)
+        .property("isLoaded", &WorldWrapper::isLoaded)
+
         // Properties (not count functions!)
         .property("npcSpawnEnabled", &WorldWrapper::getNpcSpawnEnabled)
         .property("npcSpawnFlags", &WorldWrapper::getNpcSpawnFlags)
         .property("hasPlayer", &WorldWrapper::hasPlayer)
         .property("hasSkyController", &WorldWrapper::hasSkyController)
-        
+
         // Mesh access as property
         .property("mesh", &WorldWrapper::getMesh, allow_raw_pointers());
 

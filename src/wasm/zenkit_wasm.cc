@@ -119,4 +119,5 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
 
     // Factory function
     function("createReadArchive", &create_read_archive, allow_raw_pointers());
+    function("createReadArchiveFromArray", &create_read_archive_from_js_array, allow_raw_pointers());
 }
