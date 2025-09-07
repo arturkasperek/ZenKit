@@ -302,50 +302,17 @@
         
         function loadSandTexture() {
             textureLoader.load(
-                '../assets/sand.jpg',
+                '/assets/sand.jpg',
                 function(texture) {
-                    // Configure texture
                     texture.wrapS = THREE.RepeatWrapping;
                     texture.wrapT = THREE.RepeatWrapping;
-                    texture.repeat.set(50, 50); // Tile the texture
+                    texture.repeat.set(50, 50);
                     texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-                    
                     sandTexture = texture;
-                    console.log('✅ Sand texture loaded successfully!');
-                    
-                    // If mesh is already created, update it to use sand texture
                     if (worldMesh) {
                         updateMeshWithSandTexture();
+                        renderer.render(scene, camera);
                     }
-                },
-                function(progress) {
-                    console.log('Loading sand texture: ' + (progress.loaded / progress.total * 100) + '%');
-                },
-                function(error) {
-                    console.warn('❌ Failed to load sand texture:', error);
-                    console.log('Trying alternative path: /assets/sand.jpg');
-                    
-                    // Try alternative path
-                    textureLoader.load(
-                        '/assets/sand.jpg',
-                        function(texture) {
-                            texture.wrapS = THREE.RepeatWrapping;
-                            texture.wrapT = THREE.RepeatWrapping;
-                            texture.repeat.set(50, 50);
-                            texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-                            sandTexture = texture;
-                            console.log('✅ Sand texture loaded from alternative path!');
-                            
-                            // If mesh is already created, update it to use sand texture
-                            if (worldMesh) {
-                                updateMeshWithSandTexture();
-                            }
-                        },
-                        undefined,
-                        function(error2) {
-                            console.warn('❌ Failed to load sand texture from both paths:', error2);
-                        }
-                    );
                 }
             );
         }
