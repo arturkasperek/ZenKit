@@ -354,10 +354,6 @@
                 <button onclick="fixNormals()">Fix Normals</button>
                 <button onclick="toggleDoubleSided()">Double Sided</button>
                 <br>
-                <button onclick="toggleShadows()">Toggle Shadows</button>
-                <button onclick="adjustShadowCamera()">Fix Shadow Area</button>
-                <br>
-                <button onclick="fixDarkSquare()">Fix Dark Square</button>
                 <button onclick="resetLighting()">Reset Lighting</button>
             </div>
 
@@ -409,8 +405,7 @@
             // Renderer
             renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
             renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-            renderer.shadowMap.enabled = false; // Disable shadows to fix dark square
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            // No shadow support needed
             
             // Enhanced Lighting Setup
             allLights = []; // Store all lights for toggling
@@ -420,22 +415,9 @@
             scene.add(ambientLight);
             allLights.push(ambientLight);
             
-            // Main directional light (sun) - no shadows
+            // Main directional light (sun)
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(1000, 2000, 1000);
-            directionalLight.castShadow = false;
-            directionalLight.shadow.mapSize.width = 4096;
-            directionalLight.shadow.mapSize.height = 4096;
-            directionalLight.shadow.camera.near = 0.5;
-            directionalLight.shadow.camera.far = 20000;
-            // Make shadow camera much larger to cover entire scene
-            directionalLight.shadow.camera.left = -15000;
-            directionalLight.shadow.camera.right = 15000;
-            directionalLight.shadow.camera.top = 15000;
-            directionalLight.shadow.camera.bottom = -15000;
-            // Softer shadow edges
-            directionalLight.shadow.radius = 10;
-            directionalLight.shadow.blurSamples = 25;
             scene.add(directionalLight);
             allLights.push(directionalLight);
             
@@ -845,8 +827,6 @@
                 
                 // Create mesh
                 worldMesh = new THREE.Mesh(geometry, material);
-                worldMesh.castShadow = true;
-                worldMesh.receiveShadow = true;
                 
                 scene.add(worldMesh);
                 
@@ -1181,79 +1161,8 @@
             material.needsUpdate = true;
         }
         
-        window.toggleShadows = function() {
-            // Toggle renderer shadow map
-            renderer.shadowMap.enabled = !renderer.shadowMap.enabled;
-            
-            // Toggle shadow casting on all lights
-            allLights.forEach(light => {
-                if (light.castShadow !== undefined) {
-                    light.castShadow = renderer.shadowMap.enabled;
-                }
-            });
-            
-            console.log(`🌑 Shadows ${renderer.shadowMap.enabled ? 'enabled' : 'disabled'}`);
-        }
         
-        window.adjustShadowCamera = function() {
-            if (!worldMesh || !allLights.length) return;
-            
-            // Find the main directional light
-            const mainLight = allLights.find(light => light.castShadow);
-            if (!mainLight) return;
-            
-            console.log('🔧 Adjusting shadow camera to fit mesh...');
-            
-            // Get mesh bounding box
-            const box = new THREE.Box3().setFromObject(worldMesh);
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-            
-            // Calculate appropriate shadow camera size
-            const maxSize = Math.max(size.x, size.y, size.z);
-            const padding = maxSize * 0.5; // Add 50% padding
-            
-            // Update shadow camera to fit the mesh perfectly
-            mainLight.shadow.camera.left = center.x - maxSize - padding;
-            mainLight.shadow.camera.right = center.x + maxSize + padding;
-            mainLight.shadow.camera.top = center.z + maxSize + padding;
-            mainLight.shadow.camera.bottom = center.z - maxSize - padding;
-            mainLight.shadow.camera.near = 0.5;
-            mainLight.shadow.camera.far = maxSize * 4;
-            
-            // Update shadow camera
-            mainLight.shadow.camera.updateProjectionMatrix();
-            
-            console.log(`✅ Shadow camera adjusted: ${(maxSize * 2 + padding * 2).toFixed(0)} units coverage`);
-        }
         
-        window.fixDarkSquare = function() {
-            console.log('🔧 Applying dark square fix...');
-            
-            // Completely disable shadows
-            renderer.shadowMap.enabled = false;
-            
-            // Remove shadow casting from all lights
-            allLights.forEach(light => {
-                if (light.castShadow !== undefined) {
-                    light.castShadow = false;
-                }
-            });
-            
-            // Increase ambient lighting to compensate
-            const ambientLight = allLights.find(light => light.type === 'AmbientLight');
-            if (ambientLight) {
-                ambientLight.intensity = 0.8;
-            }
-            
-            // Reduce directional light intensity to balance
-            const directionalLight = allLights.find(light => light.type === 'DirectionalLight');
-            if (directionalLight) {
-                directionalLight.intensity = 0.6;
-            }
-            
-            console.log('✅ Dark square should be eliminated - shadows disabled, lighting balanced');
-        }
         
         window.resetLighting = function() {
             console.log('🔄 Resetting lighting to default...');
@@ -1271,18 +1180,13 @@
             
             const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.5);
             directionalLight1.position.set(1, 1, 1);
-            directionalLight1.castShadow = false;
             scene.add(directionalLight1);
             allLights.push(directionalLight1);
             
             const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
             directionalLight2.position.set(-1, 1, -1);
-            directionalLight2.castShadow = false;
             scene.add(directionalLight2);
             allLights.push(directionalLight2);
-            
-            // Disable shadows completely
-            renderer.shadowMap.enabled = false;
             
             console.log('✅ Lighting reset to simple, even illumination');
         }
