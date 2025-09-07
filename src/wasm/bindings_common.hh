@@ -410,18 +410,18 @@ namespace zenkit::wasm {
         }
 
         emscripten::val getIndicesTypedArray() const {
-            if (mesh_.polygon_vertex_indices.empty()) {
+            // Only expose triangulated indices suitable for GL_TRIANGLES
+            if (mesh_.polygons.vertex_indices.empty()) {
                 return emscripten::val::null();
             }
 
-            // Use Uint32Array for indices to support large meshes; copy into JS-owned buffer
             emscripten::val Uint32Array = emscripten::val::global("Uint32Array");
-            emscripten::val js_array = Uint32Array.new_(mesh_.polygon_vertex_indices.size());
+            emscripten::val js_array = Uint32Array.new_(mesh_.polygons.vertex_indices.size());
             js_array.call<void>(
                 "set",
                 emscripten::val(emscripten::typed_memory_view(
-                    mesh_.polygon_vertex_indices.size(),
-                    mesh_.polygon_vertex_indices.data()
+                    mesh_.polygons.vertex_indices.size(),
+                    mesh_.polygons.vertex_indices.data()
                 ))
             );
             return js_array;
