@@ -345,10 +345,6 @@
                 <button onclick="toggleWireframe()">Wireframe</button>
                 <button onclick="toggleAutoRotate()">Auto Rotate</button>
                 <br>
-                <button onclick="fitToView()">Fit to View</button>
-                <button onclick="toggleBoundingBox()">Bounding Box</button>
-                <br>
-                <button onclick="toggleLighting()">Toggle Lights</button>
             </div>
 
             <div class="render-info" id="renderInfo">
@@ -366,11 +362,9 @@
         let ZenKit = null;
         let scene, camera, renderer, controls;
         let worldMesh = null;
-        let boundingBoxHelper = null;
         let stats = { fps: 0, triangles: 0, drawCalls: 0 };
         let frameCount = 0;
         let lastTime = performance.now();
-        let lightsEnabled = true;
         let allLights = [];
         let sandTexture = null;
         let textureLoader = null;
@@ -637,8 +631,7 @@
                 // Create 3D mesh
                 createThreeJSMesh(mesh);
                 
-                // Focus camera on the mesh
-                fitToView();
+                // Mesh loaded successfully
 
                 // Show results
                 document.getElementById('results').style.display = 'block';
@@ -834,32 +827,7 @@
             window.autoRotate = !window.autoRotate;
         }
         
-        window.fitToView = function() {
-            if (!worldMesh) return;
-            
-            const box = new THREE.Box3().setFromObject(worldMesh);
-            const center = box.getCenter(new THREE.Vector3());
-            const size = box.getSize(new THREE.Vector3());
-            
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const distance = maxDim * 1.5;
-            
-            camera.position.copy(center);
-            camera.position.y += distance * 0.5;
-            camera.position.z += distance;
-            camera.lookAt(center);
-        }
         
-        window.toggleBoundingBox = function() {
-            if (boundingBoxHelper) {
-                scene.remove(boundingBoxHelper);
-                boundingBoxHelper = null;
-            } else if (worldMesh) {
-                const box = new THREE.Box3().setFromObject(worldMesh);
-                boundingBoxHelper = new THREE.Box3Helper(box, 0xff0000);
-                scene.add(boundingBoxHelper);
-            }
-        }
         
         function createSkybox() {
             // Create a simple gradient skybox
@@ -969,12 +937,6 @@
         }
 
         
-        window.toggleLighting = function() {
-            lightsEnabled = !lightsEnabled;
-            allLights.forEach(light => {
-                light.visible = lightsEnabled;
-            });
-        }
         
         
         
