@@ -254,6 +254,9 @@
                 // Compute bounding box
                 geometry.computeBoundingBox();
                 
+                // Recompute normals to fix lighting issues
+                geometry.computeVertexNormals();
+                
                 // Create simple material
                 let material;
                 if (sandTexture) {
