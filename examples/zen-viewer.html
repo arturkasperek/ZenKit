@@ -170,35 +170,6 @@
             font-size: 11px;
         }
 
-        .controls {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px;
-            border-radius: 10px;
-            border: 1px solid #ffd700;
-            z-index: 1000;
-        }
-
-        .controls button {
-            background: #ffd700;
-            color: #000;
-            border: none;
-            padding: 8px 12px;
-            margin: 2px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-
-        .controls button:hover {
-            background: #ffed4e;
-        }
-
-        .controls button:active {
-            background: #e6c200;
-        }
 
         .render-info {
             position: absolute;
@@ -339,13 +310,6 @@
         <div class="viewer-container">
             <canvas id="threejs-canvas"></canvas>
             
-            <div class="controls">
-                <div style="margin-bottom: 10px; color: #ffd700; font-weight: bold;">3D Controls</div>
-                <button onclick="resetCamera()">Reset Camera</button>
-                <button onclick="toggleWireframe()">Wireframe</button>
-                <button onclick="toggleAutoRotate()">Auto Rotate</button>
-                <br>
-            </div>
 
             <div class="render-info" id="renderInfo">
                 <div>FPS: <span id="fps">0</span></div>
@@ -499,14 +463,6 @@
                 camera.lookAt(0, 0, 0);
             }
             
-            // Auto-rotate functionality
-            window.autoRotate = false;
-            setInterval(() => {
-                if (window.autoRotate) {
-                    targetX += 0.01;
-                    updateCameraPosition();
-                }
-            }, 16);
         }
 
         async function initZenKit() {
@@ -811,21 +767,8 @@
             renderer.setSize(canvas.clientWidth, canvas.clientHeight);
         }
         
-        // Control functions (global for button onclick)
-        window.resetCamera = function() {
-            camera.position.set(0, 1000, 2000);
-            camera.lookAt(0, 0, 0);
-        }
         
-        window.toggleWireframe = function() {
-            if (worldMesh && worldMesh.material) {
-                worldMesh.material.wireframe = !worldMesh.material.wireframe;
-            }
-        }
         
-        window.toggleAutoRotate = function() {
-            window.autoRotate = !window.autoRotate;
-        }
         
         
         
