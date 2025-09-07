@@ -530,11 +530,7 @@
                     document.getElementById('normalsArraySize').textContent = 'Error getting array';
                     document.getElementById('uvsArraySize').textContent = 'Error getting array';
                     document.getElementById('indicesArraySize').textContent = 'Error getting array';
-                }
-
-                // Display materials
-                displayMaterials(mesh);
-                
+                }                
                 // Display sample vertices
                 displaySampleVertices(mesh);
 
@@ -551,37 +547,6 @@
                 updateStatus(`❌ Failed to load ${fileName}: ${error.message}`, 'error');
                 console.error('File processing error:', error);
             }
-        }
-
-        function displayMaterials(mesh) {
-            const materialsList = document.getElementById('materialsList');
-            let html = '';
-            
-            try {
-                const materials = mesh.materials;
-                const count = materials.size();
-                
-                if (count === 0) {
-                    html = '<div style="color: #888;">No materials found</div>';
-                } else {
-                    for (let i = 0; i < Math.min(20, count); i++) {
-                        const material = materials.get(i);
-                        html += `<div class="material-item">
-                            <strong>${i}:</strong> "${material.name}" 
-                            <span style="color: #87ceeb;">texture:</span> "${material.texture}"
-                            <span style="color: #87ceeb;">group:</span> ${material.group}
-                        </div>`;
-                    }
-                    
-                    if (count > 20) {
-                        html += `<div style="color: #888; margin-top: 10px;">... and ${count - 20} more materials</div>`;
-                    }
-                }
-            } catch (error) {
-                html = `<div style="color: #ff8888;">Error loading materials: ${error.message}</div>`;
-            }
-            
-            materialsList.innerHTML = html;
         }
 
         function displaySampleVertices(mesh) {
