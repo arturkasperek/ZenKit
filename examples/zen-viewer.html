@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenKit TOTENINSEL.ZEN 3D Viewer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: white;
+            overflow: hidden;
+        }
+
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+        }
+
+        .sidebar {
+            width: 400px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            overflow-y: auto;
+            border-right: 2px solid #ffd700;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .viewer-container {
+            flex: 1;
+            position: relative;
+            background: #111;
+        }
+
+        #threejs-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        h1 {
+            text-align: center;
+            color: #ffd700;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .loading {
+            text-align: center;
+            font-size: 18px;
+            color: #87ceeb;
+            margin: 20px 0;
+        }
+
+        .spinner {
+            border: 4px solid #333;
+            border-top: 4px solid #ffd700;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #ffd700;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #ffd700;
+            padding-bottom: 5px;
+        }
+
+        .stat-item {
+            margin: 8px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-label {
+            color: #87ceeb;
+            font-weight: bold;
+            display: inline-block;
+            width: 120px;
+        }
+
+        .stat-value {
+            color: white;
+            font-family: 'Courier New', monospace;
+        }
+
+        .error {
+            background: rgba(255, 0, 0, 0.2);
+            border: 1px solid #ff4444;
+            color: #ffcccc;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .success {
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid #44ff44;
+            color: #ccffcc;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .file-input {
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .file-input input {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid #ffd700;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px;
+        }
+
+        .materials-list {
+            max-height: 200px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .material-item {
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .vertices-preview {
+            max-height: 150px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+        }
+
+        .controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #ffd700;
+            z-index: 1000;
+        }
+
+        .controls button {
+            background: #ffd700;
+            color: #000;
+            border: none;
+            padding: 8px 12px;
+            margin: 2px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .controls button:hover {
+            background: #ffed4e;
+        }
+
+        .controls button:active {
+            background: #e6c200;
+        }
+
+        .render-info {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h1>🏰 ZenKit 3D Viewer</h1>
+        
+            <div class="file-input">
+                <label for="zenFile">Select TOTENINSEL.ZEN file:</label>
+                <input type="file" id="zenFile" accept=".zen" />
+                <p style="color: #87ceeb; font-size: 14px;">
+                    Or place TOTENINSEL.ZEN in the project root and it will load automatically
+                </p>
+            </div>
+
+            <div id="status" class="loading">
+                <div class="spinner"></div>
+                Initializing ZenKit WebAssembly...
+            </div>
+
+            <div id="results" style="display: none;">
+            <div class="stats-grid">
+                <!-- World Info -->
+                <div class="stat-card">
+                    <div class="stat-title">🌍 World Information</div>
+                    <div class="stat-item">
+                        <span class="stat-label">File:</span>
+                        <span class="stat-value" id="fileName">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">File Size:</span>
+                        <span class="stat-value" id="fileSize">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">ZenKit Version:</span>
+                        <span class="stat-value" id="zenKitVersion">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Loaded:</span>
+                        <span class="stat-value" id="isLoaded">-</span>
+                    </div>
+                </div>
+
+                <!-- Mesh Statistics -->
+                <div class="stat-card">
+                    <div class="stat-title">📊 Mesh Statistics</div>
+                    <div class="stat-item">
+                        <span class="stat-label">Vertices:</span>
+                        <span class="stat-value" id="vertexCount">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Features:</span>
+                        <span class="stat-value" id="featureCount">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Indices:</span>
+                        <span class="stat-value" id="indexCount">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Triangles:</span>
+                        <span class="stat-value" id="triangleCount">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Materials:</span>
+                        <span class="stat-value" id="materialCount">-</span>
+                    </div>
+                </div>
+
+                <!-- Bounding Box -->
+                <div class="stat-card">
+                    <div class="stat-title">📏 Bounding Box</div>
+                    <div class="stat-item">
+                        <span class="stat-label">Min Point:</span>
+                        <span class="stat-value" id="boundingMin">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Max Point:</span>
+                        <span class="stat-value" id="boundingMax">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">World Size:</span>
+                        <span class="stat-value" id="worldSize">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Center:</span>
+                        <span class="stat-value" id="worldCenter">-</span>
+                    </div>
+                </div>
+
+                <!-- Data Arrays -->
+                <div class="stat-card">
+                    <div class="stat-title">🔢 WebGL Arrays</div>
+                    <div class="stat-item">
+                        <span class="stat-label">Vertices Array:</span>
+                        <span class="stat-value" id="verticesArraySize">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Normals Array:</span>
+                        <span class="stat-value" id="normalsArraySize">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">UVs Array:</span>
+                        <span class="stat-value" id="uvsArraySize">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Indices Array:</span>
+                        <span class="stat-value" id="indicesArraySize">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Materials List -->
+            <div class="stat-card">
+                <div class="stat-title">🎨 Materials</div>
+                <div id="materialsList" class="materials-list"></div>
+            </div>
+
+                <!-- Sample Vertices -->
+                <div class="stat-card">
+                    <div class="stat-title">📍 Sample Vertices (First 10)</div>
+                    <div id="verticesPreview" class="vertices-preview"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="viewer-container">
+            <canvas id="threejs-canvas"></canvas>
+            
+            <div class="controls">
+                <div style="margin-bottom: 10px; color: #ffd700; font-weight: bold;">3D Controls</div>
+                <button onclick="resetCamera()">Reset Camera</button>
+                <button onclick="toggleWireframe()">Wireframe</button>
+                <button onclick="toggleAutoRotate()">Auto Rotate</button>
+                <br>
+                <button onclick="fitToView()">Fit to View</button>
+                <button onclick="toggleBoundingBox()">Bounding Box</button>
+                <br>
+                <button onclick="cycleMaterial()">Material Mode</button>
+                <button onclick="toggleLighting()">Toggle Lights</button>
+                <br>
+                <button onclick="fixNormals()">Fix Normals</button>
+                <button onclick="toggleDoubleSided()">Double Sided</button>
+                <br>
+                <button onclick="toggleShadows()">Toggle Shadows</button>
+                <button onclick="adjustShadowCamera()">Fix Shadow Area</button>
+                <br>
+                <button onclick="fixDarkSquare()">Fix Dark Square</button>
+                <button onclick="resetLighting()">Reset Lighting</button>
+            </div>
+
+            <div class="render-info" id="renderInfo">
+                <div>FPS: <span id="fps">0</span></div>
+                <div>Triangles: <span id="triangles">0</span></div>
+                <div>Draw Calls: <span id="drawCalls">0</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Three.js from CDN
+        import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.min.js';
+        
+        let ZenKit = null;
+        let scene, camera, renderer, controls;
+        let worldMesh = null;
+        let boundingBoxHelper = null;
+        let stats = { fps: 0, triangles: 0, drawCalls: 0 };
+        let frameCount = 0;
+        let lastTime = performance.now();
+        let materialMode = 0; // 0: height colors, 1: normals, 2: solid, 3: wireframe, 4: textured
+        let lightsEnabled = true;
+        let allLights = [];
+        let sandTexture = null;
+        let textureLoader = null;
+
+        // Initialize Three.js Scene
+        function initThreeJS() {
+            const canvas = document.getElementById('threejs-canvas');
+            
+            // Scene
+            scene = new THREE.Scene();
+            
+            // Create skybox
+            createSkybox();
+            
+            // Initialize texture loader
+            textureLoader = new THREE.TextureLoader();
+            
+            // Load sand texture
+            loadSandTexture();
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1, 100000);
+            camera.position.set(0, 1000, 2000);
+            
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+            renderer.shadowMap.enabled = false; // Disable shadows to fix dark square
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            
+            // Enhanced Lighting Setup
+            allLights = []; // Store all lights for toggling
+            
+            // Stronger ambient light to compensate for no shadows
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            allLights.push(ambientLight);
+            
+            // Main directional light (sun) - no shadows
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1000, 2000, 1000);
+            directionalLight.castShadow = false;
+            directionalLight.shadow.mapSize.width = 4096;
+            directionalLight.shadow.mapSize.height = 4096;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 20000;
+            // Make shadow camera much larger to cover entire scene
+            directionalLight.shadow.camera.left = -15000;
+            directionalLight.shadow.camera.right = 15000;
+            directionalLight.shadow.camera.top = 15000;
+            directionalLight.shadow.camera.bottom = -15000;
+            // Softer shadow edges
+            directionalLight.shadow.radius = 10;
+            directionalLight.shadow.blurSamples = 25;
+            scene.add(directionalLight);
+            allLights.push(directionalLight);
+            
+            // Secondary directional light (fill light)
+            const fillLight = new THREE.DirectionalLight(0x87ceeb, 0.6);
+            fillLight.position.set(-1000, 1000, -1000);
+            scene.add(fillLight);
+            allLights.push(fillLight);
+            
+            // Hemisphere light for natural sky/ground lighting
+            const hemisphereLight = new THREE.HemisphereLight(0x87ceeb, 0x8B4513, 0.3);
+            scene.add(hemisphereLight);
+            allLights.push(hemisphereLight);
+            
+            // Point lights for additional illumination
+            const pointLight1 = new THREE.PointLight(0xffffff, 0.8, 5000);
+            pointLight1.position.set(2000, 1500, 2000);
+            scene.add(pointLight1);
+            allLights.push(pointLight1);
+            
+            const pointLight2 = new THREE.PointLight(0xffd700, 0.6, 4000);
+            pointLight2.position.set(-1500, 1200, -1500);
+            scene.add(pointLight2);
+            allLights.push(pointLight2);
+            
+            // Additional rim lighting
+            const rimLight1 = new THREE.DirectionalLight(0x4169e1, 0.4);
+            rimLight1.position.set(0, 500, -2000);
+            scene.add(rimLight1);
+            allLights.push(rimLight1);
+            
+            const rimLight2 = new THREE.DirectionalLight(0xff6347, 0.3);
+            rimLight2.position.set(2000, 800, 0);
+            scene.add(rimLight2);
+            allLights.push(rimLight2);
+            
+            // Simple orbit controls (manual implementation)
+            setupControls();
+            
+            // Start render loop
+            animate();
+            
+            // Handle resize
+            window.addEventListener('resize', onWindowResize);
+        }
+        
+        function setupControls() {
+            let isMouseDown = false;
+            let mouseX = 0, mouseY = 0;
+            let targetX = 0, targetY = 0;
+            let distance = 3000;
+            
+            const canvas = renderer.domElement;
+            
+            canvas.addEventListener('mousedown', (event) => {
+                isMouseDown = true;
+                mouseX = event.clientX;
+                mouseY = event.clientY;
+            });
+            
+            canvas.addEventListener('mousemove', (event) => {
+                if (!isMouseDown) return;
+                
+                const deltaX = event.clientX - mouseX;
+                const deltaY = event.clientY - mouseY;
+                
+                targetX += deltaX * 0.01;
+                targetY += deltaY * 0.01;
+                targetY = Math.max(-Math.PI/2, Math.min(Math.PI/2, targetY));
+                
+                mouseX = event.clientX;
+                mouseY = event.clientY;
+                
+                updateCameraPosition();
+            });
+            
+            canvas.addEventListener('mouseup', () => {
+                isMouseDown = false;
+            });
+            
+            canvas.addEventListener('wheel', (event) => {
+                distance += event.deltaY * 2;
+                distance = Math.max(100, Math.min(50000, distance));
+                updateCameraPosition();
+                event.preventDefault();
+            });
+            
+            function updateCameraPosition() {
+                camera.position.x = Math.cos(targetX) * Math.cos(targetY) * distance;
+                camera.position.y = Math.sin(targetY) * distance;
+                camera.position.z = Math.sin(targetX) * Math.cos(targetY) * distance;
+                camera.lookAt(0, 0, 0);
+            }
+            
+            // Auto-rotate functionality
+            window.autoRotate = false;
+            setInterval(() => {
+                if (window.autoRotate) {
+                    targetX += 0.01;
+                    updateCameraPosition();
+                }
+            }, 16);
+        }
+
+        async function initZenKit() {
+            try {
+                const ZenKitModule = (await import('../build-wasm/wasm/zenkit.mjs')).default;
+                ZenKit = await ZenKitModule();
+                updateStatus(`✅ ZenKit ${ZenKit.getZenKitVersion()} initialized successfully!`, 'success');
+                
+                // Initialize Three.js
+                initThreeJS();
+                
+                // Try to load TOTENINSEL.ZEN automatically
+                tryLoadDefaultFile();
+                
+            } catch (error) {
+                updateStatus(`❌ Failed to initialize ZenKit: ${error.message}`, 'error');
+                console.error('ZenKit initialization error:', error);
+            }
+        }
+
+        function updateStatus(message, type = 'loading') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = type;
+            statusDiv.innerHTML = type === 'loading' ? 
+                `<div class="spinner"></div>${message}` : 
+                message;
+        }
+
+        async function tryLoadDefaultFile() {
+            try {
+                updateStatus('🔍 Looking for TOTENINSEL.ZEN in project root...', 'loading');
+                
+                const response = await fetch('/TOTENINSEL.ZEN');
+                if (response.ok) {
+                    const arrayBuffer = await response.arrayBuffer();
+                    const uint8Array = new Uint8Array(arrayBuffer);
+                    await processZenFile(uint8Array, 'TOTENINSEL.ZEN', arrayBuffer.byteLength);
+                } else {
+                    updateStatus('📂 TOTENINSEL.ZEN not found. Please select a file using the file input above.', 'loading');
+                }
+            } catch (error) {
+                updateStatus('📂 TOTENINSEL.ZEN not found. Please select a file using the file input above.', 'loading');
+            }
+        }
+
+        async function processZenFile(uint8Array, fileName, fileSize) {
+            try {
+                updateStatus(`📖 Loading ${fileName}...`, 'loading');
+
+                // Create world and load
+                const world = ZenKit.createWorld();
+                const success = world.loadFromArray(uint8Array);
+
+                if (!success || !world.isLoaded) {
+                    throw new Error(world.getLastError() || 'Unknown loading error');
+                }
+
+                const mesh = world.mesh;
+                
+                // Update world info
+                document.getElementById('fileName').textContent = fileName;
+                document.getElementById('fileSize').textContent = `${(fileSize / 1024 / 1024).toFixed(2)} MB`;
+                document.getElementById('zenKitVersion').textContent = ZenKit.getZenKitVersion();
+                document.getElementById('isLoaded').textContent = world.isLoaded ? '✅ Yes' : '❌ No';
+
+                // Update mesh statistics
+                document.getElementById('vertexCount').textContent = mesh.vertexCount.toLocaleString();
+                document.getElementById('featureCount').textContent = mesh.featureCount.toLocaleString();
+                document.getElementById('indexCount').textContent = mesh.indexCount.toLocaleString();
+                document.getElementById('triangleCount').textContent = Math.floor(mesh.indexCount / 3).toLocaleString();
+                document.getElementById('materialCount').textContent = mesh.materials.size();
+
+                // Update bounding box
+                const minBox = mesh.boundingBoxMin;
+                const maxBox = mesh.boundingBoxMax;
+                document.getElementById('boundingMin').textContent = 
+                    `(${minBox.x.toFixed(1)}, ${minBox.y.toFixed(1)}, ${minBox.z.toFixed(1)})`;
+                document.getElementById('boundingMax').textContent = 
+                    `(${maxBox.x.toFixed(1)}, ${maxBox.y.toFixed(1)}, ${maxBox.z.toFixed(1)})`;
+                
+                const sizeX = maxBox.x - minBox.x;
+                const sizeY = maxBox.y - minBox.y;
+                const sizeZ = maxBox.z - minBox.z;
+                document.getElementById('worldSize').textContent = 
+                    `${sizeX.toFixed(0)} × ${sizeY.toFixed(0)} × ${sizeZ.toFixed(0)}`;
+                
+                const centerX = (minBox.x + maxBox.x) / 2;
+                const centerY = (minBox.y + maxBox.y) / 2;
+                const centerZ = (minBox.z + maxBox.z) / 2;
+                document.getElementById('worldCenter').textContent = 
+                    `(${centerX.toFixed(1)}, ${centerY.toFixed(1)}, ${centerZ.toFixed(1)})`;
+
+                // Update WebGL arrays info
+                try {
+                    const vertices = mesh.getVerticesTypedArray();
+                    const normals = mesh.getNormalsTypedArray();
+                    const uvs = mesh.getUVsTypedArray();
+                    const indices = mesh.getIndicesTypedArray();
+
+                    document.getElementById('verticesArraySize').textContent = 
+                        `${vertices.length.toLocaleString()} floats (${(vertices.length * 4 / 1024).toFixed(1)} KB)`;
+                    document.getElementById('normalsArraySize').textContent = 
+                        `${normals.length.toLocaleString()} floats (${(normals.length * 4 / 1024).toFixed(1)} KB)`;
+                    document.getElementById('uvsArraySize').textContent = 
+                        `${uvs.length.toLocaleString()} floats (${(uvs.length * 4 / 1024).toFixed(1)} KB)`;
+                    document.getElementById('indicesArraySize').textContent = 
+                        `${indices.length.toLocaleString()} ints (${(indices.length * 4 / 1024).toFixed(1)} KB)`;
+                } catch (error) {
+                    console.warn('Could not get typed arrays:', error);
+                    document.getElementById('verticesArraySize').textContent = 'Error getting array';
+                    document.getElementById('normalsArraySize').textContent = 'Error getting array';
+                    document.getElementById('uvsArraySize').textContent = 'Error getting array';
+                    document.getElementById('indicesArraySize').textContent = 'Error getting array';
+                }
+
+                // Display materials
+                displayMaterials(mesh);
+                
+                // Display sample vertices
+                displaySampleVertices(mesh);
+
+                // Create 3D mesh
+                createThreeJSMesh(mesh);
+                
+                // Focus camera on the mesh
+                fitToView();
+
+                // Show results
+                document.getElementById('results').style.display = 'block';
+                updateStatus(`✅ ${fileName} loaded successfully!`, 'success');
+
+            } catch (error) {
+                updateStatus(`❌ Failed to load ${fileName}: ${error.message}`, 'error');
+                console.error('File processing error:', error);
+            }
+        }
+
+        function displayMaterials(mesh) {
+            const materialsList = document.getElementById('materialsList');
+            let html = '';
+            
+            try {
+                const materials = mesh.materials;
+                const count = materials.size();
+                
+                if (count === 0) {
+                    html = '<div style="color: #888;">No materials found</div>';
+                } else {
+                    for (let i = 0; i < Math.min(20, count); i++) {
+                        const material = materials.get(i);
+                        html += `<div class="material-item">
+                            <strong>${i}:</strong> "${material.name}" 
+                            <span style="color: #87ceeb;">texture:</span> "${material.texture}"
+                            <span style="color: #87ceeb;">group:</span> ${material.group}
+                        </div>`;
+                    }
+                    
+                    if (count > 20) {
+                        html += `<div style="color: #888; margin-top: 10px;">... and ${count - 20} more materials</div>`;
+                    }
+                }
+            } catch (error) {
+                html = `<div style="color: #ff8888;">Error loading materials: ${error.message}</div>`;
+            }
+            
+            materialsList.innerHTML = html;
+        }
+
+        function displaySampleVertices(mesh) {
+            const verticesPreview = document.getElementById('verticesPreview');
+            let html = '';
+            
+            try {
+                const vertices = mesh.vertices;
+                const count = Math.min(10, vertices.size());
+                
+                if (count === 0) {
+                    html = '<div style="color: #888;">No vertices found</div>';
+                } else {
+                    for (let i = 0; i < count; i++) {
+                        const vertex = vertices.get(i);
+                        html += `<div>${i}: (${vertex.x.toFixed(2)}, ${vertex.y.toFixed(2)}, ${vertex.z.toFixed(2)})</div>`;
+                    }
+                }
+            } catch (error) {
+                html = `<div style="color: #ff8888;">Error loading vertices: ${error.message}</div>`;
+            }
+            
+            verticesPreview.innerHTML = html;
+        }
+
+        function createThreeJSMesh(zenMesh) {
+            // Remove existing mesh
+            if (worldMesh) {
+                scene.remove(worldMesh);
+                worldMesh.geometry.dispose();
+                worldMesh.material.dispose();
+            }
+            
+            try {
+                // Get WebGL-ready data
+                const vertices = zenMesh.getVerticesTypedArray();
+                const normals = zenMesh.getNormalsTypedArray();
+                const uvs = zenMesh.getUVsTypedArray();
+                const indices = zenMesh.getIndicesTypedArray();
+                
+                console.log(`Creating mesh with ${vertices.length/3} vertices, ${indices.length/3} triangles`);
+                
+                // Create geometry
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+                geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+                geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+                geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+                
+                // Compute bounding box and fix normals
+                geometry.computeBoundingBox();
+                
+                // Recompute normals to fix lighting issues
+                geometry.computeVertexNormals();
+                
+                // Check for invalid normals and fix them
+                const normalArray = geometry.attributes.normal.array;
+                for (let i = 0; i < normalArray.length; i += 3) {
+                    const nx = normalArray[i];
+                    const ny = normalArray[i + 1];
+                    const nz = normalArray[i + 2];
+                    
+                    // Check if normal is zero or invalid
+                    const length = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                    if (length < 0.001) {
+                        // Set default upward normal for invalid normals
+                        normalArray[i] = 0;
+                        normalArray[i + 1] = 1;
+                        normalArray[i + 2] = 0;
+                    }
+                }
+                geometry.attributes.normal.needsUpdate = true;
+                
+                // Create default textured material with sand texture
+                let material;
+                if (sandTexture) {
+                    material = new THREE.MeshPhongMaterial({
+                        map: sandTexture,
+                        shininess: 30,
+                        specular: 0x111111,
+                        side: THREE.DoubleSide,
+                        flatShading: false,
+                        transparent: false,
+                        alphaTest: 0.1
+                    });
+                    materialMode = 4; // Set to textured mode
+                } else {
+                    // Fallback to height-based colors if texture not loaded yet
+                    material = new THREE.MeshPhongMaterial({
+                        color: 0x8B7355,
+                        shininess: 30,
+                        specular: 0x222222,
+                        wireframe: false,
+                        side: THREE.DoubleSide,
+                        flatShading: false,
+                        vertexColors: false
+                    });
+                    
+                    // Add vertex colors based on height for better visualization
+                    const positions = geometry.attributes.position.array;
+                    const colors = new Float32Array(positions.length);
+                    
+                    // Find min/max Y values for color mapping
+                    let minY = Infinity, maxY = -Infinity;
+                    for (let i = 1; i < positions.length; i += 3) {
+                        minY = Math.min(minY, positions[i]);
+                        maxY = Math.max(maxY, positions[i]);
+                    }
+                    
+                    const heightRange = maxY - minY;
+                    const color = new THREE.Color();
+                    
+                    // Color vertices based on height
+                    for (let i = 0; i < positions.length; i += 3) {
+                        const height = positions[i + 1]; // Y coordinate
+                        const normalizedHeight = (height - minY) / heightRange;
+                        
+                        // Create height-based color gradient
+                        if (normalizedHeight < 0.3) {
+                            // Lower areas - darker brown/green
+                            color.setHSL(0.08, 0.6, 0.2 + normalizedHeight * 0.3);
+                        } else if (normalizedHeight < 0.7) {
+                            // Middle areas - stone colors
+                            color.setHSL(0.1, 0.4, 0.3 + normalizedHeight * 0.4);
+                        } else {
+                            // Higher areas - lighter stone/snow
+                            color.setHSL(0.15, 0.2, 0.6 + normalizedHeight * 0.3);
+                        }
+                        
+                        colors[i] = color.r;
+                        colors[i + 1] = color.g;
+                        colors[i + 2] = color.b;
+                    }
+                    
+                    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                    material.vertexColors = true;
+                    materialMode = 0; // Set to height-based colors
+                }
+                
+                // Create mesh
+                worldMesh = new THREE.Mesh(geometry, material);
+                worldMesh.castShadow = true;
+                worldMesh.receiveShadow = true;
+                
+                scene.add(worldMesh);
+                
+                // Update stats
+                stats.triangles = indices.length / 3;
+                
+                console.log('✅ 3D mesh created successfully!');
+                
+            } catch (error) {
+                console.error('❌ Failed to create 3D mesh:', error);
+                updateStatus(`❌ Failed to create 3D mesh: ${error.message}`, 'error');
+            }
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Update FPS
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                stats.fps = Math.round(frameCount * 1000 / (currentTime - lastTime));
+                frameCount = 0;
+                lastTime = currentTime;
+                
+                // Update UI
+                document.getElementById('fps').textContent = stats.fps;
+                document.getElementById('triangles').textContent = stats.triangles.toLocaleString();
+                document.getElementById('drawCalls').textContent = renderer.info.render.calls;
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        function onWindowResize() {
+            const canvas = document.getElementById('threejs-canvas');
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        }
+        
+        // Control functions (global for button onclick)
+        window.resetCamera = function() {
+            camera.position.set(0, 1000, 2000);
+            camera.lookAt(0, 0, 0);
+        }
+        
+        window.toggleWireframe = function() {
+            if (worldMesh && worldMesh.material) {
+                worldMesh.material.wireframe = !worldMesh.material.wireframe;
+            }
+        }
+        
+        window.toggleAutoRotate = function() {
+            window.autoRotate = !window.autoRotate;
+        }
+        
+        window.fitToView = function() {
+            if (!worldMesh) return;
+            
+            const box = new THREE.Box3().setFromObject(worldMesh);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const distance = maxDim * 1.5;
+            
+            camera.position.copy(center);
+            camera.position.y += distance * 0.5;
+            camera.position.z += distance;
+            camera.lookAt(center);
+        }
+        
+        window.toggleBoundingBox = function() {
+            if (boundingBoxHelper) {
+                scene.remove(boundingBoxHelper);
+                boundingBoxHelper = null;
+            } else if (worldMesh) {
+                const box = new THREE.Box3().setFromObject(worldMesh);
+                boundingBoxHelper = new THREE.Box3Helper(box, 0xff0000);
+                scene.add(boundingBoxHelper);
+            }
+        }
+        
+        function createSkybox() {
+            // Create a simple gradient skybox
+            const skyGeometry = new THREE.SphereGeometry(50000, 32, 32);
+            
+            // Create gradient material for sky
+            const skyMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    topColor: { value: new THREE.Color(0x0077ff) },    // Sky blue
+                    bottomColor: { value: new THREE.Color(0xffffff) }, // White horizon
+                    offset: { value: 33 },
+                    exponent: { value: 0.6 }
+                },
+                vertexShader: `
+                    varying vec3 vWorldPosition;
+                    void main() {
+                        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                        vWorldPosition = worldPosition.xyz;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 topColor;
+                    uniform vec3 bottomColor;
+                    uniform float offset;
+                    uniform float exponent;
+                    varying vec3 vWorldPosition;
+                    void main() {
+                        float h = normalize(vWorldPosition + offset).y;
+                        gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+                    }
+                `,
+                side: THREE.BackSide
+            });
+            
+            const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+            scene.add(sky);
+        }
+        
+        function loadSandTexture() {
+            textureLoader.load(
+                '../assets/sand.jpg',
+                function(texture) {
+                    // Configure texture
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                    texture.repeat.set(50, 50); // Tile the texture
+                    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+                    
+                    sandTexture = texture;
+                    console.log('✅ Sand texture loaded successfully!');
+                    
+                    // If mesh is already created, update it to use sand texture
+                    if (worldMesh) {
+                        updateMeshWithSandTexture();
+                    }
+                },
+                function(progress) {
+                    console.log('Loading sand texture: ' + (progress.loaded / progress.total * 100) + '%');
+                },
+                function(error) {
+                    console.warn('❌ Failed to load sand texture:', error);
+                    console.log('Trying alternative path: /assets/sand.jpg');
+                    
+                    // Try alternative path
+                    textureLoader.load(
+                        '/assets/sand.jpg',
+                        function(texture) {
+                            texture.wrapS = THREE.RepeatWrapping;
+                            texture.wrapT = THREE.RepeatWrapping;
+                            texture.repeat.set(50, 50);
+                            texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+                            sandTexture = texture;
+                            console.log('✅ Sand texture loaded from alternative path!');
+                            
+                            // If mesh is already created, update it to use sand texture
+                            if (worldMesh) {
+                                updateMeshWithSandTexture();
+                            }
+                        },
+                        undefined,
+                        function(error2) {
+                            console.warn('❌ Failed to load sand texture from both paths:', error2);
+                        }
+                    );
+                }
+            );
+        }
+        
+        function updateMeshWithSandTexture() {
+            if (!worldMesh || !sandTexture) return;
+            
+            console.log('🏖️ Updating mesh with sand texture...');
+            
+            // Switch to textured mode and apply sand texture
+            materialMode = 4;
+            worldMesh.material.dispose(); // Clean up old material
+            
+            worldMesh.material = new THREE.MeshPhongMaterial({
+                map: sandTexture,
+                shininess: 30,
+                specular: 0x111111,
+                side: THREE.DoubleSide,
+                transparent: false,
+                alphaTest: 0.1
+            });
+            
+            console.log('✅ Mesh updated with sand texture!');
+        }
+
+        window.cycleMaterial = function() {
+            if (!worldMesh) return;
+            
+            materialMode = (materialMode + 1) % 5; // Now 5 modes including textured
+            const geometry = worldMesh.geometry;
+            
+            // Dispose old material to prevent memory leaks
+            if (worldMesh.material) {
+                worldMesh.material.dispose();
+            }
+            
+            console.log(`🎨 Switching to material mode ${materialMode}`);
+            
+            switch (materialMode) {
+                case 0: // Height-based colors
+                    worldMesh.material = new THREE.MeshPhongMaterial({
+                        vertexColors: true,
+                        shininess: 30,
+                        specular: 0x222222,
+                        side: THREE.DoubleSide
+                    });
+                    console.log('Applied height-based colors');
+                    break;
+                    
+                case 1: // Normal colors
+                    const normalColors = new Float32Array(geometry.attributes.position.count * 3);
+                    const normals = geometry.attributes.normal.array;
+                    for (let i = 0; i < normals.length; i += 3) {
+                        normalColors[i] = (normals[i] + 1) * 0.5;     // R
+                        normalColors[i + 1] = (normals[i + 1] + 1) * 0.5; // G
+                        normalColors[i + 2] = (normals[i + 2] + 1) * 0.5; // B
+                    }
+                    geometry.setAttribute('color', new THREE.BufferAttribute(normalColors, 3));
+                    worldMesh.material = new THREE.MeshPhongMaterial({
+                        vertexColors: true,
+                        side: THREE.DoubleSide
+                    });
+                    console.log('Applied normal colors');
+                    break;
+                    
+                case 2: // Solid color
+                    worldMesh.material = new THREE.MeshPhongMaterial({
+                        color: 0x8B7355,
+                        shininess: 30,
+                        specular: 0x222222,
+                        side: THREE.DoubleSide
+                    });
+                    console.log('Applied solid stone color');
+                    break;
+                    
+                case 3: // Wireframe
+                    worldMesh.material = new THREE.MeshBasicMaterial({
+                        color: 0x00ff00,
+                        wireframe: true,
+                        side: THREE.DoubleSide
+                    });
+                    console.log('Applied wireframe');
+                    break;
+                    
+                case 4: // Textured (Sand)
+                    if (sandTexture) {
+                        worldMesh.material = new THREE.MeshPhongMaterial({
+                            map: sandTexture,
+                            shininess: 30,
+                            specular: 0x111111,
+                            side: THREE.DoubleSide,
+                            transparent: false,
+                            alphaTest: 0.1
+                        });
+                        console.log('✅ Applied sand texture!');
+                    } else {
+                        // Fallback to solid color if texture not loaded
+                        worldMesh.material = new THREE.MeshPhongMaterial({
+                            color: 0xc2b280, // Sandy color
+                            shininess: 30,
+                            specular: 0x111111,
+                            side: THREE.DoubleSide
+                        });
+                        console.log('⚠️ Sand texture not loaded yet, using sandy color');
+                    }
+                    break;
+            }
+        }
+        
+        window.toggleLighting = function() {
+            lightsEnabled = !lightsEnabled;
+            allLights.forEach(light => {
+                light.visible = lightsEnabled;
+            });
+        }
+        
+        window.fixNormals = function() {
+            if (!worldMesh) return;
+            
+            console.log('🔧 Fixing normals...');
+            
+            const geometry = worldMesh.geometry;
+            
+            // Method 1: Recompute vertex normals
+            geometry.computeVertexNormals();
+            
+            // Method 2: Check and fix invalid normals
+            const normalArray = geometry.attributes.normal.array;
+            let fixedCount = 0;
+            
+            for (let i = 0; i < normalArray.length; i += 3) {
+                const nx = normalArray[i];
+                const ny = normalArray[i + 1];
+                const nz = normalArray[i + 2];
+                
+                // Check if normal is zero, NaN, or too small
+                const length = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                if (length < 0.001 || isNaN(length)) {
+                    // Set default upward normal
+                    normalArray[i] = 0;
+                    normalArray[i + 1] = 1;
+                    normalArray[i + 2] = 0;
+                    fixedCount++;
+                }
+            }
+            
+            geometry.attributes.normal.needsUpdate = true;
+            console.log(`✅ Fixed ${fixedCount} invalid normals`);
+        }
+        
+        window.toggleDoubleSided = function() {
+            if (!worldMesh || !worldMesh.material) return;
+            
+            const material = worldMesh.material;
+            
+            if (material.side === THREE.DoubleSide) {
+                material.side = THREE.FrontSide;
+                console.log('🔄 Switched to front-side rendering');
+            } else {
+                material.side = THREE.DoubleSide;
+                console.log('🔄 Switched to double-sided rendering');
+            }
+            
+            material.needsUpdate = true;
+        }
+        
+        window.toggleShadows = function() {
+            // Toggle renderer shadow map
+            renderer.shadowMap.enabled = !renderer.shadowMap.enabled;
+            
+            // Toggle shadow casting on all lights
+            allLights.forEach(light => {
+                if (light.castShadow !== undefined) {
+                    light.castShadow = renderer.shadowMap.enabled;
+                }
+            });
+            
+            console.log(`🌑 Shadows ${renderer.shadowMap.enabled ? 'enabled' : 'disabled'}`);
+        }
+        
+        window.adjustShadowCamera = function() {
+            if (!worldMesh || !allLights.length) return;
+            
+            // Find the main directional light
+            const mainLight = allLights.find(light => light.castShadow);
+            if (!mainLight) return;
+            
+            console.log('🔧 Adjusting shadow camera to fit mesh...');
+            
+            // Get mesh bounding box
+            const box = new THREE.Box3().setFromObject(worldMesh);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            
+            // Calculate appropriate shadow camera size
+            const maxSize = Math.max(size.x, size.y, size.z);
+            const padding = maxSize * 0.5; // Add 50% padding
+            
+            // Update shadow camera to fit the mesh perfectly
+            mainLight.shadow.camera.left = center.x - maxSize - padding;
+            mainLight.shadow.camera.right = center.x + maxSize + padding;
+            mainLight.shadow.camera.top = center.z + maxSize + padding;
+            mainLight.shadow.camera.bottom = center.z - maxSize - padding;
+            mainLight.shadow.camera.near = 0.5;
+            mainLight.shadow.camera.far = maxSize * 4;
+            
+            // Update shadow camera
+            mainLight.shadow.camera.updateProjectionMatrix();
+            
+            console.log(`✅ Shadow camera adjusted: ${(maxSize * 2 + padding * 2).toFixed(0)} units coverage`);
+        }
+        
+        window.fixDarkSquare = function() {
+            console.log('🔧 Applying dark square fix...');
+            
+            // Completely disable shadows
+            renderer.shadowMap.enabled = false;
+            
+            // Remove shadow casting from all lights
+            allLights.forEach(light => {
+                if (light.castShadow !== undefined) {
+                    light.castShadow = false;
+                }
+            });
+            
+            // Increase ambient lighting to compensate
+            const ambientLight = allLights.find(light => light.type === 'AmbientLight');
+            if (ambientLight) {
+                ambientLight.intensity = 0.8;
+            }
+            
+            // Reduce directional light intensity to balance
+            const directionalLight = allLights.find(light => light.type === 'DirectionalLight');
+            if (directionalLight) {
+                directionalLight.intensity = 0.6;
+            }
+            
+            console.log('✅ Dark square should be eliminated - shadows disabled, lighting balanced');
+        }
+        
+        window.resetLighting = function() {
+            console.log('🔄 Resetting lighting to default...');
+            
+            // Clear existing lights
+            allLights.forEach(light => {
+                scene.remove(light);
+            });
+            allLights = [];
+            
+            // Create simple, even lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+            allLights.push(ambientLight);
+            
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight1.position.set(1, 1, 1);
+            directionalLight1.castShadow = false;
+            scene.add(directionalLight1);
+            allLights.push(directionalLight1);
+            
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+            directionalLight2.position.set(-1, 1, -1);
+            directionalLight2.castShadow = false;
+            scene.add(directionalLight2);
+            allLights.push(directionalLight2);
+            
+            // Disable shadows completely
+            renderer.shadowMap.enabled = false;
+            
+            console.log('✅ Lighting reset to simple, even illumination');
+        }
+
+        // File input handler
+        document.getElementById('zenFile').addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (file && ZenKit) {
+                const arrayBuffer = await file.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+                await processZenFile(uint8Array, file.name, file.size);
+            }
+        });
+
+        // Initialize on page load
+        initZenKit();
+    </script>
+</body>
+</html>
