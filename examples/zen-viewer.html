@@ -173,126 +173,6 @@
 </head>
 <body>
     <div class="container">
-        <div class="sidebar">
-            <h1>🏰 ZenKit 3D Viewer</h1>
-        
-            <div class="file-input">
-                <label for="zenFile">Select TOTENINSEL.ZEN file:</label>
-                <input type="file" id="zenFile" accept=".zen" />
-                <p style="color: #87ceeb; font-size: 14px;">
-                    Or place TOTENINSEL.ZEN in the project root and it will load automatically
-                </p>
-            </div>
-
-            <div id="status" class="loading">
-                <div class="spinner"></div>
-                Initializing ZenKit WebAssembly...
-            </div>
-
-            <div id="results" style="display: none;">
-            <div class="stats-grid">
-                <!-- World Info -->
-                <div class="stat-card">
-                    <div class="stat-title">🌍 World Information</div>
-                    <div class="stat-item">
-                        <span class="stat-label">File:</span>
-                        <span class="stat-value" id="fileName">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">File Size:</span>
-                        <span class="stat-value" id="fileSize">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">ZenKit Version:</span>
-                        <span class="stat-value" id="zenKitVersion">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Loaded:</span>
-                        <span class="stat-value" id="isLoaded">-</span>
-                    </div>
-                </div>
-
-                <!-- Mesh Statistics -->
-                <div class="stat-card">
-                    <div class="stat-title">📊 Mesh Statistics</div>
-                    <div class="stat-item">
-                        <span class="stat-label">Vertices:</span>
-                        <span class="stat-value" id="vertexCount">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Features:</span>
-                        <span class="stat-value" id="featureCount">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Indices:</span>
-                        <span class="stat-value" id="indexCount">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Triangles:</span>
-                        <span class="stat-value" id="triangleCount">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Materials:</span>
-                        <span class="stat-value" id="materialCount">-</span>
-                    </div>
-                </div>
-
-                <!-- Bounding Box -->
-                <div class="stat-card">
-                    <div class="stat-title">📏 Bounding Box</div>
-                    <div class="stat-item">
-                        <span class="stat-label">Min Point:</span>
-                        <span class="stat-value" id="boundingMin">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Max Point:</span>
-                        <span class="stat-value" id="boundingMax">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">World Size:</span>
-                        <span class="stat-value" id="worldSize">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Center:</span>
-                        <span class="stat-value" id="worldCenter">-</span>
-                    </div>
-                </div>
-
-                <!-- Data Arrays -->
-                <div class="stat-card">
-                    <div class="stat-title">🔢 WebGL Arrays</div>
-                    <div class="stat-item">
-                        <span class="stat-label">Vertices Array:</span>
-                        <span class="stat-value" id="verticesArraySize">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Normals Array:</span>
-                        <span class="stat-value" id="normalsArraySize">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">UVs Array:</span>
-                        <span class="stat-value" id="uvsArraySize">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Indices Array:</span>
-                        <span class="stat-value" id="indicesArraySize">-</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Materials List -->
-            <div class="stat-card">
-                <div class="stat-title">🎨 Materials</div>
-                <div id="materialsList" class="materials-list"></div>
-            </div>
-
-                <!-- Sample Vertices -->
-                <div class="stat-card">
-                    <div class="stat-title">📍 Sample Vertices (First 10)</div>
-                    <div id="verticesPreview" class="vertices-preview"></div>
-                </div>
-            </div>
-        </div>
 
         <div class="viewer-container">
             <canvas id="threejs-canvas"></canvas>
@@ -438,11 +318,7 @@
         }
 
         function updateStatus(message, type = 'loading') {
-            const statusDiv = document.getElementById('status');
-            statusDiv.className = type;
-            statusDiv.innerHTML = type === 'loading' ? 
-                `<div class="spinner"></div>${message}` : 
-                message;
+            console.log(message);
         }
 
         async function tryLoadDefaultFile() {
@@ -455,10 +331,10 @@
                     const uint8Array = new Uint8Array(arrayBuffer);
                     await processZenFile(uint8Array, 'TOTENINSEL.ZEN', arrayBuffer.byteLength);
                 } else {
-                    updateStatus('📂 TOTENINSEL.ZEN not found. Please select a file using the file input above.', 'loading');
+                    updateStatus('📂 TOTENINSEL.ZEN not found. Please place it in the project root.', 'loading');
                 }
             } catch (error) {
-                updateStatus('📂 TOTENINSEL.ZEN not found. Please select a file using the file input above.', 'loading');
+                updateStatus('📂 TOTENINSEL.ZEN not found. Please place it in the project root.', 'loading');
             }
         }
 
@@ -475,72 +351,10 @@
                 }
 
                 const mesh = world.mesh;
-                
-                // Update world info
-                document.getElementById('fileName').textContent = fileName;
-                document.getElementById('fileSize').textContent = `${(fileSize / 1024 / 1024).toFixed(2)} MB`;
-                document.getElementById('zenKitVersion').textContent = ZenKit.getZenKitVersion();
-                document.getElementById('isLoaded').textContent = world.isLoaded ? '✅ Yes' : '❌ No';
-
-                // Update mesh statistics
-                document.getElementById('vertexCount').textContent = mesh.vertexCount.toLocaleString();
-                document.getElementById('featureCount').textContent = mesh.featureCount.toLocaleString();
-                document.getElementById('indexCount').textContent = mesh.indexCount.toLocaleString();
-                document.getElementById('triangleCount').textContent = Math.floor(mesh.indexCount / 3).toLocaleString();
-                document.getElementById('materialCount').textContent = mesh.materials.size();
-
-                // Update bounding box
-                const minBox = mesh.boundingBoxMin;
-                const maxBox = mesh.boundingBoxMax;
-                document.getElementById('boundingMin').textContent = 
-                    `(${minBox.x.toFixed(1)}, ${minBox.y.toFixed(1)}, ${minBox.z.toFixed(1)})`;
-                document.getElementById('boundingMax').textContent = 
-                    `(${maxBox.x.toFixed(1)}, ${maxBox.y.toFixed(1)}, ${maxBox.z.toFixed(1)})`;
-                
-                const sizeX = maxBox.x - minBox.x;
-                const sizeY = maxBox.y - minBox.y;
-                const sizeZ = maxBox.z - minBox.z;
-                document.getElementById('worldSize').textContent = 
-                    `${sizeX.toFixed(0)} × ${sizeY.toFixed(0)} × ${sizeZ.toFixed(0)}`;
-                
-                const centerX = (minBox.x + maxBox.x) / 2;
-                const centerY = (minBox.y + maxBox.y) / 2;
-                const centerZ = (minBox.z + maxBox.z) / 2;
-                document.getElementById('worldCenter').textContent = 
-                    `(${centerX.toFixed(1)}, ${centerY.toFixed(1)}, ${centerZ.toFixed(1)})`;
-
-                // Update WebGL arrays info
-                try {
-                    const vertices = mesh.getVerticesTypedArray();
-                    const normals = mesh.getNormalsTypedArray();
-                    const uvs = mesh.getUVsTypedArray();
-                    const indices = mesh.getIndicesTypedArray();
-
-                    document.getElementById('verticesArraySize').textContent = 
-                        `${vertices.length.toLocaleString()} floats (${(vertices.length * 4 / 1024).toFixed(1)} KB)`;
-                    document.getElementById('normalsArraySize').textContent = 
-                        `${normals.length.toLocaleString()} floats (${(normals.length * 4 / 1024).toFixed(1)} KB)`;
-                    document.getElementById('uvsArraySize').textContent = 
-                        `${uvs.length.toLocaleString()} floats (${(uvs.length * 4 / 1024).toFixed(1)} KB)`;
-                    document.getElementById('indicesArraySize').textContent = 
-                        `${indices.length.toLocaleString()} ints (${(indices.length * 4 / 1024).toFixed(1)} KB)`;
-                } catch (error) {
-                    console.warn('Could not get typed arrays:', error);
-                    document.getElementById('verticesArraySize').textContent = 'Error getting array';
-                    document.getElementById('normalsArraySize').textContent = 'Error getting array';
-                    document.getElementById('uvsArraySize').textContent = 'Error getting array';
-                    document.getElementById('indicesArraySize').textContent = 'Error getting array';
-                }                
-                // Display sample vertices
-                displaySampleVertices(mesh);
 
                 // Create 3D mesh
                 createThreeJSMesh(mesh);
-                
-                // Mesh loaded successfully
 
-                // Show results
-                document.getElementById('results').style.display = 'block';
                 updateStatus(`✅ ${fileName} loaded successfully!`, 'success');
 
             } catch (error) {
@@ -549,9 +363,7 @@
             }
         }
 
-        function displaySampleVertices(mesh) {
-            // const vertices = mesh.vertices;
-        }
+        
 
         function createThreeJSMesh(zenMesh) {
             // Remove existing mesh
@@ -766,24 +578,6 @@
             
             console.log('✅ Mesh updated with sand texture!');
         }
-
-        
-        
-        
-        
-        
-        
-        
-
-        // File input handler
-        document.getElementById('zenFile').addEventListener('change', async (event) => {
-            const file = event.target.files[0];
-            if (file && ZenKit) {
-                const arrayBuffer = await file.arrayBuffer();
-                const uint8Array = new Uint8Array(arrayBuffer);
-                await processZenFile(uint8Array, file.name, file.size);
-            }
-        });
 
         // Initialize on page load
         initZenKit();
