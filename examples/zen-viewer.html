@@ -74,9 +74,6 @@
             // Scene
             scene = new THREE.Scene();
             
-            // Create skybox
-            createSkybox();
-            
             // Initialize texture loader
             textureLoader = new THREE.TextureLoader();
             
@@ -108,9 +105,6 @@
             
             // Simple orbit controls (manual implementation)
             setupControls();
-            
-            // Start render loop
-            animate();
             
             // Handle resize
             window.addEventListener('resize', onWindowResize);
@@ -162,6 +156,7 @@
                 camera.position.y = Math.sin(targetY) * distance;
                 camera.position.z = Math.sin(targetX) * Math.cos(targetY) * distance;
                 camera.lookAt(0, 0, 0);
+                renderer.render(scene, camera);
             }
             
         }
@@ -256,29 +251,8 @@
                 geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
                 geometry.setIndex(new THREE.BufferAttribute(indices, 1));
                 
-                // Compute bounding box and fix normals
+                // Compute bounding box
                 geometry.computeBoundingBox();
-                
-                // Recompute normals to fix lighting issues
-                geometry.computeVertexNormals();
-                
-                // Check for invalid normals and fix them
-                const normalArray = geometry.attributes.normal.array;
-                for (let i = 0; i < normalArray.length; i += 3) {
-                    const nx = normalArray[i];
-                    const ny = normalArray[i + 1];
-                    const nz = normalArray[i + 2];
-                    
-                    // Check if normal is zero or invalid
-                    const length = Math.sqrt(nx * nx + ny * ny + nz * nz);
-                    if (length < 0.001) {
-                        // Set default upward normal for invalid normals
-                        normalArray[i] = 0;
-                        normalArray[i + 1] = 1;
-                        normalArray[i + 2] = 0;
-                    }
-                }
-                geometry.attributes.normal.needsUpdate = true;
                 
                 // Create simple material
                 let material;
@@ -304,6 +278,8 @@
                 stats.triangles = indices.length / 3;
                 
                 console.log('✅ 3D mesh created successfully!');
+                // Render once after creating the mesh
+                renderer.render(scene, camera);
                 
             } catch (error) {
                 console.error('❌ Failed to create 3D mesh:', error);
@@ -311,70 +287,15 @@
             }
         }
         
-        function animate() {
-            requestAnimationFrame(animate);
-            
-            // Update FPS
-            frameCount++;
-            const currentTime = performance.now();
-            if (currentTime - lastTime >= 1000) {
-                stats.fps = Math.round(frameCount * 1000 / (currentTime - lastTime));
-                frameCount = 0;
-                lastTime = currentTime;
-                
-                // Update UI
-                document.getElementById('fps').textContent = stats.fps;
-                document.getElementById('triangles').textContent = stats.triangles.toLocaleString();
-                document.getElementById('drawCalls').textContent = renderer.info.render.calls;
-            }
-            
-            renderer.render(scene, camera);
-        }
-        
         function onWindowResize() {
             const canvas = document.getElementById('threejs-canvas');
             camera.aspect = canvas.clientWidth / canvas.clientHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+            renderer.render(scene, camera);
         }
         
-        function createSkybox() {
-            // Create a simple gradient skybox
-            const skyGeometry = new THREE.SphereGeometry(50000, 32, 32);
-            
-            // Create gradient material for sky
-            const skyMaterial = new THREE.ShaderMaterial({
-                uniforms: {
-                    topColor: { value: new THREE.Color(0x0077ff) },    // Sky blue
-                    bottomColor: { value: new THREE.Color(0xffffff) }, // White horizon
-                    offset: { value: 33 },
-                    exponent: { value: 0.6 }
-                },
-                vertexShader: `
-                    varying vec3 vWorldPosition;
-                    void main() {
-                        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-                        vWorldPosition = worldPosition.xyz;
-                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                    }
-                `,
-                fragmentShader: `
-                    uniform vec3 topColor;
-                    uniform vec3 bottomColor;
-                    uniform float offset;
-                    uniform float exponent;
-                    varying vec3 vWorldPosition;
-                    void main() {
-                        float h = normalize(vWorldPosition + offset).y;
-                        gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
-                    }
-                `,
-                side: THREE.BackSide
-            });
-            
-            const sky = new THREE.Mesh(skyGeometry, skyMaterial);
-            scene.add(sky);
-        }
+        
         
         function loadSandTexture() {
             textureLoader.load(
