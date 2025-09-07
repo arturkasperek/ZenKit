@@ -348,10 +348,7 @@
                 <button onclick="fitToView()">Fit to View</button>
                 <button onclick="toggleBoundingBox()">Bounding Box</button>
                 <br>
-                <button onclick="cycleMaterial()">Material Mode</button>
                 <button onclick="toggleLighting()">Toggle Lights</button>
-                <br>
-                <button onclick="toggleDoubleSided()">Double Sided</button>
             </div>
 
             <div class="render-info" id="renderInfo">
@@ -373,7 +370,6 @@
         let stats = { fps: 0, triangles: 0, drawCalls: 0 };
         let frameCount = 0;
         let lastTime = performance.now();
-        let materialMode = 0; // 0: height colors, 1: normals, 2: solid, 3: wireframe, 4: textured
         let lightsEnabled = true;
         let allLights = [];
         let sandTexture = null;
@@ -756,7 +752,7 @@
                 }
                 geometry.attributes.normal.needsUpdate = true;
                 
-                // Create default textured material with sand texture
+                // Create default material with sand texture if available
                 let material;
                 if (sandTexture) {
                     material = new THREE.MeshPhongMaterial({
@@ -768,58 +764,15 @@
                         transparent: false,
                         alphaTest: 0.1
                     });
-                    materialMode = 4; // Set to textured mode
                 } else {
-                    // Fallback to height-based colors if texture not loaded yet
+                    // Fallback to simple stone color
                     material = new THREE.MeshPhongMaterial({
                         color: 0x8B7355,
                         shininess: 30,
                         specular: 0x222222,
-                        wireframe: false,
                         side: THREE.DoubleSide,
-                        flatShading: false,
-                        vertexColors: false
+                        flatShading: false
                     });
-                    
-                    // Add vertex colors based on height for better visualization
-                    const positions = geometry.attributes.position.array;
-                    const colors = new Float32Array(positions.length);
-                    
-                    // Find min/max Y values for color mapping
-                    let minY = Infinity, maxY = -Infinity;
-                    for (let i = 1; i < positions.length; i += 3) {
-                        minY = Math.min(minY, positions[i]);
-                        maxY = Math.max(maxY, positions[i]);
-                    }
-                    
-                    const heightRange = maxY - minY;
-                    const color = new THREE.Color();
-                    
-                    // Color vertices based on height
-                    for (let i = 0; i < positions.length; i += 3) {
-                        const height = positions[i + 1]; // Y coordinate
-                        const normalizedHeight = (height - minY) / heightRange;
-                        
-                        // Create height-based color gradient
-                        if (normalizedHeight < 0.3) {
-                            // Lower areas - darker brown/green
-                            color.setHSL(0.08, 0.6, 0.2 + normalizedHeight * 0.3);
-                        } else if (normalizedHeight < 0.7) {
-                            // Middle areas - stone colors
-                            color.setHSL(0.1, 0.4, 0.3 + normalizedHeight * 0.4);
-                        } else {
-                            // Higher areas - lighter stone/snow
-                            color.setHSL(0.15, 0.2, 0.6 + normalizedHeight * 0.3);
-                        }
-                        
-                        colors[i] = color.r;
-                        colors[i + 1] = color.g;
-                        colors[i + 2] = color.b;
-                    }
-                    
-                    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-                    material.vertexColors = true;
-                    materialMode = 0; // Set to height-based colors
                 }
                 
                 // Create mesh
@@ -1001,8 +954,6 @@
             
             console.log('🏖️ Updating mesh with sand texture...');
             
-            // Switch to textured mode and apply sand texture
-            materialMode = 4;
             worldMesh.material.dispose(); // Clean up old material
             
             worldMesh.material = new THREE.MeshPhongMaterial({
@@ -1017,89 +968,6 @@
             console.log('✅ Mesh updated with sand texture!');
         }
 
-        window.cycleMaterial = function() {
-            if (!worldMesh) return;
-            
-            materialMode = (materialMode + 1) % 5; // Now 5 modes including textured
-            const geometry = worldMesh.geometry;
-            
-            // Dispose old material to prevent memory leaks
-            if (worldMesh.material) {
-                worldMesh.material.dispose();
-            }
-            
-            console.log(`🎨 Switching to material mode ${materialMode}`);
-            
-            switch (materialMode) {
-                case 0: // Height-based colors
-                    worldMesh.material = new THREE.MeshPhongMaterial({
-                        vertexColors: true,
-                        shininess: 30,
-                        specular: 0x222222,
-                        side: THREE.DoubleSide
-                    });
-                    console.log('Applied height-based colors');
-                    break;
-                    
-                case 1: // Normal colors
-                    const normalColors = new Float32Array(geometry.attributes.position.count * 3);
-                    const normals = geometry.attributes.normal.array;
-                    for (let i = 0; i < normals.length; i += 3) {
-                        normalColors[i] = (normals[i] + 1) * 0.5;     // R
-                        normalColors[i + 1] = (normals[i + 1] + 1) * 0.5; // G
-                        normalColors[i + 2] = (normals[i + 2] + 1) * 0.5; // B
-                    }
-                    geometry.setAttribute('color', new THREE.BufferAttribute(normalColors, 3));
-                    worldMesh.material = new THREE.MeshPhongMaterial({
-                        vertexColors: true,
-                        side: THREE.DoubleSide
-                    });
-                    console.log('Applied normal colors');
-                    break;
-                    
-                case 2: // Solid color
-                    worldMesh.material = new THREE.MeshPhongMaterial({
-                        color: 0x8B7355,
-                        shininess: 30,
-                        specular: 0x222222,
-                        side: THREE.DoubleSide
-                    });
-                    console.log('Applied solid stone color');
-                    break;
-                    
-                case 3: // Wireframe
-                    worldMesh.material = new THREE.MeshBasicMaterial({
-                        color: 0x00ff00,
-                        wireframe: true,
-                        side: THREE.DoubleSide
-                    });
-                    console.log('Applied wireframe');
-                    break;
-                    
-                case 4: // Textured (Sand)
-                    if (sandTexture) {
-                        worldMesh.material = new THREE.MeshPhongMaterial({
-                            map: sandTexture,
-                            shininess: 30,
-                            specular: 0x111111,
-                            side: THREE.DoubleSide,
-                            transparent: false,
-                            alphaTest: 0.1
-                        });
-                        console.log('✅ Applied sand texture!');
-                    } else {
-                        // Fallback to solid color if texture not loaded
-                        worldMesh.material = new THREE.MeshPhongMaterial({
-                            color: 0xc2b280, // Sandy color
-                            shininess: 30,
-                            specular: 0x111111,
-                            side: THREE.DoubleSide
-                        });
-                        console.log('⚠️ Sand texture not loaded yet, using sandy color');
-                    }
-                    break;
-            }
-        }
         
         window.toggleLighting = function() {
             lightsEnabled = !lightsEnabled;
@@ -1109,21 +977,6 @@
         }
         
         
-        window.toggleDoubleSided = function() {
-            if (!worldMesh || !worldMesh.material) return;
-            
-            const material = worldMesh.material;
-            
-            if (material.side === THREE.DoubleSide) {
-                material.side = THREE.FrontSide;
-                console.log('🔄 Switched to front-side rendering');
-            } else {
-                material.side = THREE.DoubleSide;
-                console.log('🔄 Switched to double-sided rendering');
-            }
-            
-            material.needsUpdate = true;
-        }
         
         
         
