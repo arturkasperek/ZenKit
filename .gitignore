@@ -11,6 +11,5 @@
 
 *.proprietary.*
 *.env
-TOTENINSEL.ZEN
 node_modules/
 test-results/

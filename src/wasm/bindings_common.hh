@@ -350,6 +350,7 @@ namespace zenkit::wasm {
         size_t getIndexCount() const { return mesh_.polygon_vertex_indices.size(); }
 
         // Performance optimization: Direct typed array access for WebGL
+        // IMPORTANT: Return JS-owned TypedArrays, not views into WASM memory.
         emscripten::val getVerticesTypedArray() const {
             if (mesh_.vertices.empty()) {
                 return emscripten::val::null();
@@ -364,7 +365,11 @@ namespace zenkit::wasm {
                 flat_vertices.push_back(vertex.z);
             }
 
-            return emscripten::val(emscripten::typed_memory_view(flat_vertices.size(), flat_vertices.data()));
+            // Allocate JS Float32Array and copy data into it
+            emscripten::val Float32Array = emscripten::val::global("Float32Array");
+            emscripten::val js_array = Float32Array.new_(flat_vertices.size());
+            js_array.call<void>("set", emscripten::val(emscripten::typed_memory_view(flat_vertices.size(), flat_vertices.data())));
+            return js_array;
         }
 
         emscripten::val getNormalsTypedArray() const {
@@ -380,7 +385,10 @@ namespace zenkit::wasm {
                 flat_normals.push_back(feature.normal.z);
             }
 
-            return emscripten::val(emscripten::typed_memory_view(flat_normals.size(), flat_normals.data()));
+            emscripten::val Float32Array = emscripten::val::global("Float32Array");
+            emscripten::val js_array = Float32Array.new_(flat_normals.size());
+            js_array.call<void>("set", emscripten::val(emscripten::typed_memory_view(flat_normals.size(), flat_normals.data())));
+            return js_array;
         }
 
         emscripten::val getUVsTypedArray() const {
@@ -395,7 +403,10 @@ namespace zenkit::wasm {
                 flat_uvs.push_back(feature.texture.y);
             }
 
-            return emscripten::val(emscripten::typed_memory_view(flat_uvs.size(), flat_uvs.data()));
+            emscripten::val Float32Array = emscripten::val::global("Float32Array");
+            emscripten::val js_array = Float32Array.new_(flat_uvs.size());
+            js_array.call<void>("set", emscripten::val(emscripten::typed_memory_view(flat_uvs.size(), flat_uvs.data())));
+            return js_array;
         }
 
         emscripten::val getIndicesTypedArray() const {
@@ -403,10 +414,17 @@ namespace zenkit::wasm {
                 return emscripten::val::null();
             }
 
-            return emscripten::val(emscripten::typed_memory_view(
-                mesh_.polygon_vertex_indices.size(),
-                mesh_.polygon_vertex_indices.data()
-            ));
+            // Use Uint32Array for indices to support large meshes; copy into JS-owned buffer
+            emscripten::val Uint32Array = emscripten::val::global("Uint32Array");
+            emscripten::val js_array = Uint32Array.new_(mesh_.polygon_vertex_indices.size());
+            js_array.call<void>(
+                "set",
+                emscripten::val(emscripten::typed_memory_view(
+                    mesh_.polygon_vertex_indices.size(),
+                    mesh_.polygon_vertex_indices.data()
+                ))
+            );
+            return js_array;
         }
 
     private:

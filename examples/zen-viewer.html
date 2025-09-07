@@ -550,26 +550,7 @@
         }
 
         function displaySampleVertices(mesh) {
-            const verticesPreview = document.getElementById('verticesPreview');
-            let html = '';
-            
-            try {
-                const vertices = mesh.vertices;
-                const count = Math.min(10, vertices.size());
-                
-                if (count === 0) {
-                    html = '<div style="color: #888;">No vertices found</div>';
-                } else {
-                    for (let i = 0; i < count; i++) {
-                        const vertex = vertices.get(i);
-                        html += `<div>${i}: (${vertex.x.toFixed(2)}, ${vertex.y.toFixed(2)}, ${vertex.z.toFixed(2)})</div>`;
-                    }
-                }
-            } catch (error) {
-                html = `<div style="color: #ff8888;">Error loading vertices: ${error.message}</div>`;
-            }
-            
-            verticesPreview.innerHTML = html;
+            // const vertices = mesh.vertices;
         }
 
         function createThreeJSMesh(zenMesh) {
