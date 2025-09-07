@@ -351,10 +351,7 @@
                 <button onclick="cycleMaterial()">Material Mode</button>
                 <button onclick="toggleLighting()">Toggle Lights</button>
                 <br>
-                <button onclick="fixNormals()">Fix Normals</button>
                 <button onclick="toggleDoubleSided()">Double Sided</button>
-                <br>
-                <button onclick="resetLighting()">Reset Lighting</button>
             </div>
 
             <div class="render-info" id="renderInfo">
@@ -1111,39 +1108,6 @@
             });
         }
         
-        window.fixNormals = function() {
-            if (!worldMesh) return;
-            
-            console.log('🔧 Fixing normals...');
-            
-            const geometry = worldMesh.geometry;
-            
-            // Method 1: Recompute vertex normals
-            geometry.computeVertexNormals();
-            
-            // Method 2: Check and fix invalid normals
-            const normalArray = geometry.attributes.normal.array;
-            let fixedCount = 0;
-            
-            for (let i = 0; i < normalArray.length; i += 3) {
-                const nx = normalArray[i];
-                const ny = normalArray[i + 1];
-                const nz = normalArray[i + 2];
-                
-                // Check if normal is zero, NaN, or too small
-                const length = Math.sqrt(nx * nx + ny * ny + nz * nz);
-                if (length < 0.001 || isNaN(length)) {
-                    // Set default upward normal
-                    normalArray[i] = 0;
-                    normalArray[i + 1] = 1;
-                    normalArray[i + 2] = 0;
-                    fixedCount++;
-                }
-            }
-            
-            geometry.attributes.normal.needsUpdate = true;
-            console.log(`✅ Fixed ${fixedCount} invalid normals`);
-        }
         
         window.toggleDoubleSided = function() {
             if (!worldMesh || !worldMesh.material) return;
@@ -1164,32 +1128,6 @@
         
         
         
-        window.resetLighting = function() {
-            console.log('🔄 Resetting lighting to default...');
-            
-            // Clear existing lights
-            allLights.forEach(light => {
-                scene.remove(light);
-            });
-            allLights = [];
-            
-            // Create simple, even lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-            scene.add(ambientLight);
-            allLights.push(ambientLight);
-            
-            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.5);
-            directionalLight1.position.set(1, 1, 1);
-            scene.add(directionalLight1);
-            allLights.push(directionalLight1);
-            
-            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
-            directionalLight2.position.set(-1, 1, -1);
-            scene.add(directionalLight2);
-            allLights.push(directionalLight2);
-            
-            console.log('✅ Lighting reset to simple, even illumination');
-        }
 
         // File input handler
         document.getElementById('zenFile').addEventListener('change', async (event) => {
