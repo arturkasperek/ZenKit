@@ -1,11 +1,12 @@
 #include <zenkit/Vfs.hh>
 #include <zenkit/Logger.hh>
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
-#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -105,18 +106,59 @@ private:
         return vdf_files;
     }
 
+    fs::path flatten_path(const fs::path& relative_path) {
+        // Convert path to string and normalize
+        std::string path_str = relative_path.string();
+        
+        // Remove common Gothic prefixes to flatten structure
+        std::vector<std::string> prefixes_to_remove = {
+            "_WORK/DATA/",
+            "_WORK\\DATA\\",  // Windows path separator
+            "_work/data/",    // lowercase variants
+            "_work\\data\\"
+        };
+        
+        for (const auto& prefix : prefixes_to_remove) {
+            if (path_str.find(prefix) == 0) {
+                path_str = path_str.substr(prefix.length());
+                break;
+            }
+        }
+        
+        return fs::path(path_str);
+    }
+
     void extract_tree(const zenkit::VfsNode& node, const fs::path& output_root, const fs::path& relative_path = fs::path()) {
         if (node.type() == zenkit::VfsNodeType::DIRECTORY) {
-            auto dir_path = output_root / relative_path / node.name();
+            // Skip directories that are just organizational (_WORK, DATA)
+            std::string dir_name = node.name();
+            std::transform(dir_name.begin(), dir_name.end(), dir_name.begin(), ::tolower);
+            
+            if (dir_name == "_work" || dir_name == "data") {
+                // Skip this directory level, just process children with current path
+                for (auto const& child : node.children()) {
+                    extract_tree(child, output_root, relative_path);
+                }
+                return;
+            }
+            
+            auto new_relative_path = relative_path / node.name();
+            auto flattened_path = flatten_path(new_relative_path);
+            auto dir_path = output_root / flattened_path;
+            
             std::error_code ec;
             fs::create_directories(dir_path, ec);
+            
             for (auto const& child : node.children()) {
-                extract_tree(child, output_root, relative_path / node.name());
+                extract_tree(child, output_root, new_relative_path);
             }
             return;
         }
 
-        auto file_path = output_root / relative_path / node.name();
+        // For files, use flattened path
+        auto flattened_relative = flatten_path(relative_path);
+        auto file_path = output_root / flattened_relative / node.name();
+        
         std::error_code ec;
         fs::create_directories(file_path.parent_path(), ec);
 
@@ -139,9 +181,8 @@ private:
         std::cout << "Extracting: " << vdf_path.filename().string() << "...";
         
         try {
-            // Create subdirectory for this VDF
-            std::string vdf_name = vdf_path.stem().string();
-            fs::path vdf_output_dir = fs::path(output_path_) / vdf_name;
+            // Extract directly to the root output directory (no VDF subdirectory)
+            fs::path vdf_output_dir = fs::path(output_path_);
             
             std::error_code ec;
             fs::create_directories(vdf_output_dir, ec);
