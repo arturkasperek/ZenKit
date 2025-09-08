@@ -187,7 +187,7 @@
             try {
                 updateStatus('🔍 Looking for TOTENINSEL.ZEN in project root...', 'loading');
                 
-                const response = await fetch('/NEWWORLD.ZEN');
+                const response = await fetch('/public/game-assets/Worlds/Newworld/NEWWORLD.ZEN');
                 if (response.ok) {
                     const arrayBuffer = await response.arrayBuffer();
                     const uint8Array = new Uint8Array(arrayBuffer);
