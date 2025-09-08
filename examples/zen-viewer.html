@@ -274,6 +274,7 @@
                 
                 // Create mesh
                 worldMesh = new THREE.Mesh(geometry, material);
+                worldMesh.scale.x = -1; // Fix mirrored world
                 
                 scene.add(worldMesh);
                 
