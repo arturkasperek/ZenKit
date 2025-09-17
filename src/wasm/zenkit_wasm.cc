@@ -63,6 +63,15 @@ EMSCRIPTEN_BINDINGS(zenkit_main) {
     // Core library functions
     function("getZenKitVersion", &getZenKitVersion);
     function("getLibraryInfo", &getLibraryInfo);
+
+    // Texture bindings
+    class_<TextureWrapper>("Texture")
+        .constructor<>()
+        .function("loadFromArray", &TextureWrapper::loadFromArray)
+        .property("width", &TextureWrapper::width)
+        .property("height", &TextureWrapper::height)
+        .property("mipmaps", &TextureWrapper::mipmaps)
+        .function("asRgba8", &TextureWrapper::asRgba8);
 }
 
 // Archive reading bindings

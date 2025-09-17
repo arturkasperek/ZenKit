@@ -64,7 +64,7 @@
         let frameCount = 0;
         let lastTime = performance.now();
         let allLights = [];
-        let sandTexture = null;
+        let meshTexture = null;
         let textureLoader = null;
 
         // Initialize Three.js Scene
@@ -77,8 +77,7 @@
             // Initialize texture loader
             textureLoader = new THREE.TextureLoader();
             
-            // Load sand texture
-            loadSandTexture();
+            // Try to load a compiled Gothic texture later per-mesh
             
             // Camera
             camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1, 100000);
@@ -187,7 +186,7 @@
             try {
                 updateStatus('🔍 Looking for TOTENINSEL.ZEN in project root...', 'loading');
                 
-                const response = await fetch('/public/game-assets/Worlds/Newworld/NEWWORLD.ZEN');
+                const response = await fetch('/TOTENINSEL.ZEN');
                 if (response.ok) {
                     const arrayBuffer = await response.arrayBuffer();
                     const uint8Array = new Uint8Array(arrayBuffer);
@@ -227,7 +226,7 @@
 
         
 
-        function createThreeJSMesh(zenMesh) {
+        async function createThreeJSMesh(zenMesh) {
             // Remove existing mesh
             if (worldMesh) {
                 scene.remove(worldMesh);
@@ -236,20 +235,77 @@
             }
             
             try {
-                // Get WebGL-ready data
-                const vertices = zenMesh.getVerticesTypedArray();
-                const normals = zenMesh.getNormalsTypedArray();
-                const uvs = zenMesh.getUVsTypedArray();
-                const indices = zenMesh.getIndicesTypedArray();
+                // Get data from WASM
+                const vertices = zenMesh.getVerticesTypedArray();            // Float32Array [vx,vy,vz,...] per vertex
+                let   uvsAll   = zenMesh.getUVsTypedArray();                 // Float32Array [u,v,...] per feature
+                const indices  = zenMesh.getIndicesTypedArray();             // Uint32Array triangle vertex indices
+                let   featIdx  = zenMesh.getTriFeatureIndicesTypedArray?.(); // Preferred: per-triangle feature indices
+                if (!featIdx || !featIdx.length) {
+                    featIdx = zenMesh.getFeatureIndicesTypedArray?.();       // Fallback
+                }
                 
                 console.log(`Creating mesh with ${vertices.length/3} vertices, ${indices.length/3} triangles`);
                 
-                // Create geometry
+                // Build non-indexed geometry using feature-based UVs
                 const geometry = new THREE.BufferGeometry();
-                geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-                geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-                geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-                geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+                const triCount = Math.floor(indices.length / 3);
+                const posOut = new Float32Array(triCount * 3 * 3);
+                const uvOut  = new Float32Array(triCount * 3 * 2);
+                for (let t = 0; t < triCount; t++) {
+                    for (let c = 0; c < 3; c++) {
+                        const vi = indices[t*3 + c];
+                        const fi = featIdx ? featIdx[t*3 + c] : vi; // fallback
+                        const pDst = (t*3 + c) * 3;
+                        const uDst = (t*3 + c) * 2;
+                        const pSrc = vi * 3;
+                        const uSrc = fi * 2;
+                        posOut[pDst+0] = vertices[pSrc+0];
+                        posOut[pDst+1] = vertices[pSrc+1];
+                        posOut[pDst+2] = vertices[pSrc+2];
+                        let u = uvsAll[uSrc+0];
+                        let v = uvsAll[uSrc+1];
+                        // Try both conventions if values look degenerate; prefer minimal distortion
+                        uvOut[uDst+0]  = u;
+                        uvOut[uDst+1]  = 1.0 - v;
+                    }
+                }
+                geometry.setAttribute('position', new THREE.BufferAttribute(posOut, 3));
+                geometry.setAttribute('uv', new THREE.BufferAttribute(uvOut, 2));
+
+                // Try per-triangle materials; handle feature-indexed UVs if present
+                const polyMatIdx = zenMesh.getPolygonMaterialIndicesTypedArray?.();
+                if (polyMatIdx && polyMatIdx.length && triCount) {
+                    const groups = buildGroupsByMaterial(triCount, polyMatIdx);
+                    geometry.clearGroups();
+                    for (const g of groups) geometry.addGroup(g.start, g.count, g.materialIndex);
+
+                    // Build materials array and load textures lazily
+                    const mats = zenMesh.materials;
+                    const mcount = (typeof mats.size === 'function') ? mats.size() : (mats.length || 0);
+                    const materialArray = new Array(mcount).fill(null);
+                    for (let mi = 0; mi < mcount; mi++) {
+                        const m = (typeof mats.get === 'function') ? mats.get(mi) : mats[mi];
+                        const fallback = new THREE.MeshLambertMaterial({ color: 0x8B7355, side: THREE.DoubleSide });
+                        materialArray[mi] = fallback;
+                        if (m && m.texture && m.texture.length) {
+                            const url = tgaNameToCompiledUrl(m.texture);
+                            loadCompiledTexAsDataTexture(url).then(tex => {
+                                if (tex) {
+                                    materialArray[mi].map = tex;
+                                    materialArray[mi].needsUpdate = true;
+                                    renderer.render(scene, camera);
+                                }
+                            }).catch(()=>{});
+                        }
+                    }
+                    worldMesh = new THREE.Mesh(geometry, materialArray);
+                } else {
+                    // Single material fallback
+                    let material;
+                    if (meshTexture) material = new THREE.MeshLambertMaterial({ map: meshTexture, side: THREE.DoubleSide });
+                    else material = new THREE.MeshLambertMaterial({ color: 0x8B7355, side: THREE.DoubleSide });
+                    worldMesh = new THREE.Mesh(geometry, material);
+                }
                 
                 // Compute bounding box
                 geometry.computeBoundingBox();
@@ -257,23 +313,22 @@
                 // Recompute normals to fix lighting issues
                 geometry.computeVertexNormals();
                 
-                // Create simple material
+                // Try load first material texture from mesh materials list
                 let material;
-                if (sandTexture) {
-                    material = new THREE.MeshLambertMaterial({
-                        map: sandTexture,
-                        side: THREE.DoubleSide
-                    });
+                try {
+                    const tex = await tryLoadFirstCompiledTexture(zenMesh);
+                    if (tex) {
+                        meshTexture = tex;
+                    }
+                } catch (e) {
+                    console.warn('Texture load failed:', e);
+                }
+                if (meshTexture) {
+                    material = new THREE.MeshLambertMaterial({ map: meshTexture, side: THREE.DoubleSide });
                 } else {
-                    // Fallback to simple stone color
-                    material = new THREE.MeshLambertMaterial({
-                        color: 0x8B7355,
-                        side: THREE.DoubleSide
-                    });
+                    material = new THREE.MeshLambertMaterial({ color: 0x8B7355, side: THREE.DoubleSide });
                 }
                 
-                // Create mesh
-                worldMesh = new THREE.Mesh(geometry, material);
                 worldMesh.scale.x = -1; // Fix mirrored world
                 
                 scene.add(worldMesh);
@@ -290,6 +345,25 @@
                 updateStatus(`❌ Failed to create 3D mesh: ${error.message}`, 'error');
             }
         }
+
+        function buildGroupsByMaterial(triCount, polyMatIdx) {
+            const groups = [];
+            // Build runs of consecutive triangles with same material index
+            let curMat = polyMatIdx[0] ?? 0;
+            let startTri = 0;
+            for (let t = 1; t <= triCount; t++) {
+                const mat = (t < triCount) ? polyMatIdx[t] : curMat - 1; // force flush at end
+                if (t === triCount || mat !== curMat) {
+                    const start = startTri * 3;          // non-indexed: vertex offset
+                    const count = (t - startTri) * 3;     // number of vertices
+                    groups.push({ start, count, materialIndex: curMat });
+                    startTri = t;
+                    curMat = mat;
+                }
+            }
+            return groups;
+        }
+
         
         function onWindowResize() {
             const canvas = document.getElementById('threejs-canvas');
@@ -301,36 +375,67 @@
         
         
         
-        function loadSandTexture() {
-            textureLoader.load(
-                '/assets/sand.jpg',
-                function(texture) {
-                    texture.wrapS = THREE.RepeatWrapping;
-                    texture.wrapT = THREE.RepeatWrapping;
-                    texture.repeat.set(50, 50);
-                    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-                    sandTexture = texture;
-                    if (worldMesh) {
-                        updateMeshWithSandTexture();
-                        renderer.render(scene, camera);
+        // Load .TEX from compiled path via WASM and build a DataTexture
+        async function loadCompiledTexAsDataTexture(url) {
+            const res = await fetch(url);
+            if (!res.ok) return null;
+            const buf = await res.arrayBuffer();
+            const arr = new Uint8Array(buf);
+            const zkTex = new ZenKit.Texture();
+            const ok = zkTex.loadFromArray(arr);
+            if (!ok || !ok.success) return null;
+            const w = zkTex.width;
+            const h = zkTex.height;
+            const rgba = zkTex.asRgba8(0);
+            if (!rgba) return null;
+            const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
+            tex.needsUpdate = true;
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+            // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.magFilter = THREE.LinearFilter;
+            tex.generateMipmaps = true;
+            return tex;
+        }
+
+        function tgaNameToCompiledUrl(name) {
+            if (!name || typeof name !== 'string') return null;
+            const base = name.replace(/\.[^.]*$/, '').toUpperCase();
+            return `/public/game-assets/TEXTURES/_COMPILED/${base}-C.TEX`;
+        }
+
+        async function tryLoadFirstCompiledTexture(zenMesh) {
+            try {
+                const materials = zenMesh.materials;
+                if (!materials) { console.log('No materials found'); return null; }
+                const count = (typeof materials.size === 'function') ? materials.size() : (materials.length || 0);
+                console.log('Materials count:', count);
+                for (let i = 0; i < count; i++) {
+                    const m = (typeof materials.get === 'function') ? materials.get(i) : materials[i];
+                    if (!m) continue;
+                    if (m.texture && m.texture.length) {
+                        const url = tgaNameToCompiledUrl(m.texture);
+                        console.log('Trying texture', m.texture, '->', url);
+                        if (!url) continue;
+                        const tex = await loadCompiledTexAsDataTexture(url);
+                        if (tex) return tex;
                     }
                 }
-            );
-        }
-        
-        function updateMeshWithSandTexture() {
-            if (!worldMesh || !sandTexture) return;
-            
-            console.log('🏖️ Updating mesh with sand texture...');
-            
-            worldMesh.material.dispose(); // Clean up old material
-            
-            worldMesh.material = new THREE.MeshLambertMaterial({
-                map: sandTexture,
-                side: THREE.DoubleSide
-            });
-            
-            console.log('✅ Mesh updated with sand texture!');
+                // Fallback: try known sample compiled textures present in repo
+                const fallbacks = [
+                    '/public/game-assets/TEXTURES/_COMPILED/ARMOR_BLOODWYN-C.TEX',
+                    '/public/game-assets/TEXTURES/_COMPILED/NW_CITY_INSIDEWALL_13-C.TEX'
+                ];
+                for (const url of fallbacks) {
+                    console.log('Trying fallback texture ->', url);
+                    const tex = await loadCompiledTexAsDataTexture(url);
+                    if (tex) return tex;
+                }
+            } catch (e) { console.warn('tryLoadFirstCompiledTexture error', e); }
+            return null;
         }
 
         // Initialize on page load

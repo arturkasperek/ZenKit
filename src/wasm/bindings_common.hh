@@ -13,6 +13,7 @@
 #include "zenkit/Misc.hh"
 #include "zenkit/Mesh.hh"
 #include "zenkit/Archive.hh"
+#include "zenkit/Texture.hh"
 
 namespace zenkit::wasm {
 
@@ -427,6 +428,56 @@ namespace zenkit::wasm {
             return js_array;
         }
 
+        emscripten::val getFeatureIndicesTypedArray() const {
+            if (mesh_.polygons.feature_indices.empty()) {
+                return emscripten::val::null();
+            }
+            emscripten::val Uint32Array = emscripten::val::global("Uint32Array");
+            emscripten::val js_array = Uint32Array.new_(mesh_.polygons.feature_indices.size());
+            js_array.call<void>(
+                "set",
+                emscripten::val(emscripten::typed_memory_view(
+                    mesh_.polygons.feature_indices.size(),
+                    mesh_.polygons.feature_indices.data()
+                ))
+            );
+            return js_array;
+        }
+
+        emscripten::val getTriFeatureIndicesTypedArray() const {
+            if (mesh_.polygon_feature_indices.empty()) {
+                return emscripten::val::null();
+            }
+            emscripten::val Uint32Array = emscripten::val::global("Uint32Array");
+            emscripten::val js_array = Uint32Array.new_(mesh_.polygon_feature_indices.size());
+            js_array.call<void>(
+                "set",
+                emscripten::val(emscripten::typed_memory_view(
+                    mesh_.polygon_feature_indices.size(),
+                    mesh_.polygon_feature_indices.data()
+                ))
+            );
+            return js_array;
+        }
+
+        // Material index per triangle (aligned with triangles in vertex_indices/3)
+        emscripten::val getPolygonMaterialIndicesTypedArray() const {
+            if (mesh_.polygons.material_indices.empty()) {
+                return emscripten::val::null();
+            }
+
+            emscripten::val Uint32Array = emscripten::val::global("Uint32Array");
+            emscripten::val js_array = Uint32Array.new_(mesh_.polygons.material_indices.size());
+            js_array.call<void>(
+                "set",
+                emscripten::val(emscripten::typed_memory_view(
+                    mesh_.polygons.material_indices.size(),
+                    mesh_.polygons.material_indices.data()
+                ))
+            );
+            return js_array;
+        }
+
     private:
         const zenkit::Mesh& mesh_;
 
@@ -462,5 +513,24 @@ namespace zenkit::wasm {
 
     // Forward declaration for World wrapper
     class WorldWrapper;
+
+    // Texture wrapper for exposing TEX -> RGBA8 to JS
+    class TextureWrapper {
+    public:
+        TextureWrapper() = default;
+        ~TextureWrapper() = default;
+
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        [[nodiscard]] uint32_t width()   const { return tex_.width(); }
+        [[nodiscard]] uint32_t height()  const { return tex_.height(); }
+        [[nodiscard]] uint32_t mipmaps() const { return tex_.mipmaps(); }
+
+        // Returns JS Uint8Array of RGBA8 pixels for the requested mip level
+        emscripten::val asRgba8(uint32_t mip_level) const;
+
+    private:
+        zenkit::Texture tex_;
+    };
 
 } // namespace zenkit::wasm

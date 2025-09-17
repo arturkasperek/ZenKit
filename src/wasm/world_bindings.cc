@@ -181,7 +181,10 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .function("getVerticesTypedArray", &MeshWrapper::getVerticesTypedArray)
         .function("getNormalsTypedArray", &MeshWrapper::getNormalsTypedArray)
         .function("getUVsTypedArray", &MeshWrapper::getUVsTypedArray)
-        .function("getIndicesTypedArray", &MeshWrapper::getIndicesTypedArray);
+        .function("getIndicesTypedArray", &MeshWrapper::getIndicesTypedArray)
+        .function("getFeatureIndicesTypedArray", &MeshWrapper::getFeatureIndicesTypedArray)
+        .function("getTriFeatureIndicesTypedArray", &MeshWrapper::getTriFeatureIndicesTypedArray)
+        .function("getPolygonMaterialIndicesTypedArray", &MeshWrapper::getPolygonMaterialIndicesTypedArray);
 
     // Main World wrapper - properties instead of count functions
     class_<WorldWrapper>("World")

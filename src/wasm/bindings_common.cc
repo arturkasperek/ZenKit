@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "bindings_common.hh"
 #include "zenkit/Stream.hh"
+#include "zenkit/Texture.hh"
 
 namespace zenkit::wasm {
 
@@ -53,6 +54,30 @@ namespace zenkit::wasm {
         auto reader = create_reader_from_js_array(uint8_array);
         auto archive = zenkit::ReadArchive::from(reader.get());
         return std::make_unique<ReadArchiveWrapper>(std::move(archive));
+    }
+
+    Result<bool> TextureWrapper::loadFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            tex_.load(reader.get());
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            return Result<bool>(e.what());
+        }
+    }
+
+    emscripten::val TextureWrapper::asRgba8(uint32_t mip_level) const {
+        try {
+            auto data = tex_.as_rgba8(mip_level);
+            if(data.empty())
+                return emscripten::val::null();
+            emscripten::val Uint8Array = emscripten::val::global("Uint8Array");
+            emscripten::val js_array = Uint8Array.new_(data.size());
+            js_array.call<void>("set", emscripten::val(emscripten::typed_memory_view(data.size(), data.data())));
+            return js_array;
+        } catch(...) {
+            return emscripten::val::null();
+        }
     }
 
 } // namespace zenkit::wasm
