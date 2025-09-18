@@ -36,6 +36,7 @@
     "build:standard": "cmake -B build -DCMAKE_BUILD_TYPE=Debug -DZK_BUILD_EXAMPLES=ON -DZK_BUILD_TESTS=ON -DBUILD_SQUISH_WITH_SSE2=OFF && cmake --build build",
     "build:wasm": "emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release -DZK_BUILD_WASM=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build-wasm && cp package.json build-wasm/wasm/ && cp zenkit.d.ts build-wasm/wasm/ && cp .npmrc build-wasm/wasm/",
     "build:debug": "emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Debug -DZK_BUILD_WASM=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build-wasm && cp package.json build-wasm/wasm/ && cp zenkit.d.ts build-wasm/wasm/ && cp .npmrc build-wasm/wasm/",
+    "start:game": "./OpenGothic/build/opengothic/Gothic2Notr.sh -g $GOTHIC_PATH -window",
     "clean:wasm": "rm -rf build-wasm"
   },
   "jest": {
