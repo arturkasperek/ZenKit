@@ -21,3 +21,5 @@ OpenGothic/
 Gothic.ini
 log.txt
 save_slot*
+opengothic_renderable_mesh.json
+opengothic_texture_mapping.json
