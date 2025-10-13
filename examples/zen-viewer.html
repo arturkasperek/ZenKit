@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZenKit TOTENINSEL.ZEN 3D Viewer</title>
+    <title>ZenKit 3D Viewer (OpenGothic Pipeline)</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -79,38 +79,25 @@
             
             // Try to load a compiled Gothic texture later per-mesh
             
-            // Camera
-            camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1, 100000);
+            // Camera with optimized near/far planes to reduce z-fighting
+            camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1.0, 100000);
             camera.position.set(0, 1000, 2000);
             
-            // Renderer
-            renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+            // Renderer with enhanced depth buffer settings
+            renderer = new THREE.WebGLRenderer({ 
+                canvas, 
+                antialias: true,
+                logarithmicDepthBuffer: true  // Better depth precision for large scenes
+            });
             renderer.setSize(canvas.clientWidth, canvas.clientHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
-            renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.6; // brighter exposure for readability
-            renderer.physicallyCorrectLights = true;
-            // No shadow support needed
             
-            // Simple Lighting Setup
-            allLights = [];
+            // Additional depth buffer settings for better rendering
+            renderer.sortObjects = true;  // Ensure proper depth sorting
+            renderer.autoClear = true;
             
-            // Low ambient to avoid flat look
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
-            scene.add(ambientLight);
-            allLights.push(ambientLight);
-            
-            // Key directional light
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 3.0);
-            directionalLight.position.set(0.8, 1.0, 0.6);
-            scene.add(directionalLight);
-            allLights.push(directionalLight);
-
-            // Fill directional light (softer, opposite side)
-            const fillLight = new THREE.DirectionalLight(0xfff2dd, 0.8);
-            fillLight.position.set(-0.3, 0.6, -0.8);
-            scene.add(fillLight);
-            allLights.push(fillLight);
+            // Note: No lighting needed since we use MeshBasicMaterial (unlit)
+            // This shows raw texture colors without lighting calculations
             
             // Simple orbit controls (manual implementation)
             setupControls();
@@ -194,18 +181,18 @@
 
         async function tryLoadDefaultFile() {
             try {
-                updateStatus('🔍 Looking for TOTENINSEL.ZEN in project root...', 'loading');
+                updateStatus('🔍 Looking for DRAGONISLAND.ZEN...', 'loading');
                 
-                const response = await fetch('/TOTENINSEL.ZEN');
+                const response = await fetch('/public/game-assets/WORLDS/NEWWORLD/NEWWORLD.ZEN');
                 if (response.ok) {
                     const arrayBuffer = await response.arrayBuffer();
                     const uint8Array = new Uint8Array(arrayBuffer);
-                    await processZenFile(uint8Array, 'TOTENINSEL.ZEN', arrayBuffer.byteLength);
+                    await processZenFile(uint8Array, 'DRAGONISLAND.ZEN', arrayBuffer.byteLength);
                 } else {
-                    updateStatus('📂 TOTENINSEL.ZEN not found. Please place it in the project root.', 'loading');
+                    updateStatus('📂 DRAGONISLAND.ZEN not found.', 'loading');
                 }
             } catch (error) {
-                updateStatus('📂 TOTENINSEL.ZEN not found. Please place it in the project root.', 'loading');
+                updateStatus('📂 DRAGONISLAND.ZEN not found.', 'loading');
             }
         }
 
@@ -241,117 +228,129 @@
             if (worldMesh) {
                 scene.remove(worldMesh);
                 worldMesh.geometry.dispose();
-                worldMesh.material.dispose();
+                if (Array.isArray(worldMesh.material)) {
+                    worldMesh.material.forEach(m => m.dispose());
+                } else {
+                    worldMesh.material.dispose();
+                }
             }
             
             try {
-                // Get data from WASM
-                const vertices = zenMesh.getVerticesTypedArray();            // Float32Array [vx,vy,vz,...] per vertex
-                let   uvsAll   = zenMesh.getUVsTypedArray();                 // Float32Array [u,v,...] per feature
-                const indices  = zenMesh.getIndicesTypedArray();             // Uint32Array triangle vertex indices
-                let   featIdx  = zenMesh.getTriFeatureIndicesTypedArray?.(); // Preferred: per-triangle feature indices
-                if (!featIdx || !featIdx.length) {
-                    featIdx = zenMesh.getFeatureIndicesTypedArray?.();       // Fallback
+                console.log('🔧 Using new getProcessedMeshData() with OpenGothic pipeline...');
+                
+                // Get processed mesh data (with material deduplication, composite vertices, sorting)
+                const processed = zenMesh.getProcessedMeshData();
+                
+                // Convert Emscripten vectors to typed arrays
+                const vertCount = processed.vertices.size();
+                const idxCount = processed.indices.size();
+                const matIdCount = processed.materialIds.size();
+                const matCount = processed.materials.size();
+                
+                console.log(`Processed mesh: ${vertCount/8} vertices, ${idxCount/3} triangles, ${matCount} materials (deduplicated)`);
+                
+                // Build Three.js geometry from processed data
+                // Vertices are [x,y,z, nx,ny,nz, u,v] × vertex_count
+                const positions = new Float32Array(idxCount * 3); // Expand to non-indexed
+                const normals = new Float32Array(idxCount * 3);
+                const uvs = new Float32Array(idxCount * 2);
+                
+                for (let i = 0; i < idxCount; i++) {
+                    const vertIdx = processed.indices.get(i);
+                    const vertBase = vertIdx * 8;
+                    
+                    // Position
+                    positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
+                    positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
+                    positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
+                    
+                    // Normal
+                    normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
+                    normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
+                    normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
+                    
+                    // UV
+                    uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
+                    uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
                 }
                 
-                console.log(`Creating mesh with ${vertices.length/3} vertices, ${indices.length/3} triangles`);
-                
-                // Build non-indexed geometry using feature-based UVs
                 const geometry = new THREE.BufferGeometry();
-                const triCount = Math.floor(indices.length / 3);
-                const posOut = new Float32Array(triCount * 3 * 3);
-                const uvOut  = new Float32Array(triCount * 3 * 2);
-                for (let t = 0; t < triCount; t++) {
-                    for (let c = 0; c < 3; c++) {
-                        const vi = indices[t*3 + c];
-                        const fi = featIdx ? featIdx[t*3 + c] : vi; // fallback
-                        const pDst = (t*3 + c) * 3;
-                        const uDst = (t*3 + c) * 2;
-                        const pSrc = vi * 3;
-                        const uSrc = fi * 2;
-                        posOut[pDst+0] = vertices[pSrc+0];
-                        posOut[pDst+1] = vertices[pSrc+1];
-                        posOut[pDst+2] = vertices[pSrc+2];
-                        let u = uvsAll[uSrc+0];
-                        let v = uvsAll[uSrc+1];
-                        // Try both conventions if values look degenerate; prefer minimal distortion
-                        uvOut[uDst+0]  = u;
-                        uvOut[uDst+1]  = 1.0 - v;
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+                geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+                
+                // Build material groups based on processed material IDs
+                // materialIds is per-triangle, so we need to find consecutive runs
+                const triCount = matIdCount;
+                geometry.clearGroups();
+                
+                let currentMatId = processed.materialIds.get(0);
+                let groupStart = 0;
+                
+                for (let t = 1; t <= triCount; t++) {
+                    const matId = (t < triCount) ? processed.materialIds.get(t) : -1; // Force flush at end
+                    
+                    if (t === triCount || matId !== currentMatId) {
+                        // End of group
+                        const vertexStart = groupStart * 3; // 3 vertices per triangle
+                        const vertexCount = (t - groupStart) * 3;
+                        geometry.addGroup(vertexStart, vertexCount, currentMatId);
+                        
+                        groupStart = t;
+                        currentMatId = matId;
                     }
                 }
-                geometry.setAttribute('position', new THREE.BufferAttribute(posOut, 3));
-                geometry.setAttribute('uv', new THREE.BufferAttribute(uvOut, 2));
-
-                // Try per-triangle materials; handle feature-indexed UVs if present
-                const polyMatIdx = zenMesh.getPolygonMaterialIndicesTypedArray?.();
-                if (polyMatIdx && polyMatIdx.length && triCount) {
-                    const groups = buildGroupsByMaterial(triCount, polyMatIdx);
-                    geometry.clearGroups();
-                    for (const g of groups) geometry.addGroup(g.start, g.count, g.materialIndex);
-
-                    // Build materials array and load textures lazily
-                    const mats = zenMesh.materials;
-                    const mcount = (typeof mats.size === 'function') ? mats.size() : (mats.length || 0);
-                    const materialArray = new Array(mcount).fill(null);
-                    for (let mi = 0; mi < mcount; mi++) {
-                        const m = (typeof mats.get === 'function') ? mats.get(mi) : mats[mi];
-                        const fallback = new THREE.MeshLambertMaterial({ color: 0x8B7355, side: THREE.DoubleSide });
-                        materialArray[mi] = fallback;
-                        if (m && m.texture && m.texture.length) {
-                            const url = tgaNameToCompiledUrl(m.texture);
-                            loadCompiledTexAsDataTexture(url).then(tex => {
-                                if (tex) {
-                                    materialArray[mi].map = tex;
-                                    materialArray[mi].needsUpdate = true;
-                                    renderer.render(scene, camera);
-                                }
-                            }).catch(()=>{});
-                        }
+                
+                // Build materials array from deduplicated materials
+                const materialArray = [];
+                for (let mi = 0; mi < matCount; mi++) {
+                    const mat = processed.materials.get(mi);
+                    const fallback = new THREE.MeshBasicMaterial({ 
+                        color: 0x8B7355, 
+                        side: THREE.DoubleSide,
+                        transparent: true,
+                        alphaTest: 0.01
+                    });
+                    materialArray.push(fallback);
+                    
+                    // Load texture asynchronously
+                    if (mat && mat.texture && mat.texture.length) {
+                        const url = tgaNameToCompiledUrl(mat.texture);
+                        loadCompiledTexAsDataTexture(url).then(tex => {
+                            if (tex) {
+                                materialArray[mi].map = tex;
+                                materialArray[mi].needsUpdate = true;
+                                renderer.render(scene, camera);
+                            }
+                        }).catch(() => {
+                            console.warn(`Failed to load texture: ${mat.texture}`);
+                        });
                     }
-                    worldMesh = new THREE.Mesh(geometry, materialArray);
-                } else {
-                    // Single material fallback
-                    let material;
-                    if (meshTexture) material = new THREE.MeshLambertMaterial({ map: meshTexture, side: THREE.DoubleSide });
-                    else material = new THREE.MeshLambertMaterial({ color: 0x8B7355, side: THREE.DoubleSide });
-                    worldMesh = new THREE.Mesh(geometry, material);
                 }
+                
+                worldMesh = new THREE.Mesh(geometry, materialArray);
                 
                 // Compute bounding box
                 geometry.computeBoundingBox();
-                
-                // Recompute normals to fix lighting issues
-                geometry.computeVertexNormals();
-                
-                // Try load first material texture from mesh materials list
-                let material;
-                try {
-                    const tex = await tryLoadFirstCompiledTexture(zenMesh);
-                    if (tex) {
-                        meshTexture = tex;
-                    }
-                } catch (e) {
-                    console.warn('Texture load failed:', e);
-                }
-                if (meshTexture) {
-                    material = new THREE.MeshLambertMaterial({ map: meshTexture, side: THREE.DoubleSide });
-                } else {
-                    material = new THREE.MeshLambertMaterial({ color: 0x8B7355, side: THREE.DoubleSide });
-                }
                 
                 worldMesh.scale.x = -1; // Fix mirrored world
                 
                 scene.add(worldMesh);
                 
                 // Update stats
-                stats.triangles = indices.length / 3;
+                stats.triangles = triCount;
                 
-                console.log('✅ 3D mesh created successfully!');
+                console.log('✅ 3D mesh created successfully with processed data!');
+                console.log(`   - ${matCount} deduplicated materials`);
+                console.log(`   - ${vertCount/8} composite vertices`);
+                console.log(`   - ${triCount} triangles (sorted by material)`);
+                
                 // Render once after creating the mesh
                 renderer.render(scene, camera);
                 
             } catch (error) {
                 console.error('❌ Failed to create 3D mesh:', error);
+                console.error('Error stack:', error.stack);
                 updateStatus(`❌ Failed to create 3D mesh: ${error.message}`, 'error');
             }
         }
@@ -400,6 +399,7 @@
             if (!rgba) return null;
             const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
             tex.needsUpdate = true;
+            tex.flipY = false;  // OpenGothic doesn't flip Y
             tex.colorSpace = THREE.SRGBColorSpace;
             tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
             // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling

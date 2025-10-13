@@ -154,11 +154,19 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("axes", &OrientedBoundingBoxData::axes)
         .field("half_width", &OrientedBoundingBoxData::half_width);
 
+    // ProcessedMeshData - OpenGothic-style processed mesh
+    value_object<ProcessedMeshData>("ProcessedMeshData")
+        .field("vertices", &ProcessedMeshData::vertices)
+        .field("indices", &ProcessedMeshData::indices)
+        .field("materialIds", &ProcessedMeshData::materialIds)
+        .field("materials", &ProcessedMeshData::materials);
+
     // Register vector types
     register_vector<Vector3>("VectorVector3");
     register_vector<Vector2>("VectorVector2");
     register_vector<VertexFeature>("VectorVertexFeature");
     register_vector<uint32_t>("VectorUint32");
+    register_vector<float>("VectorFloat");
     register_vector<MaterialData>("VectorMaterialData");
 
     // MeshData - expose actual data as properties with improved safety
@@ -184,7 +192,9 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .function("getIndicesTypedArray", &MeshWrapper::getIndicesTypedArray)
         .function("getFeatureIndicesTypedArray", &MeshWrapper::getFeatureIndicesTypedArray)
         .function("getTriFeatureIndicesTypedArray", &MeshWrapper::getTriFeatureIndicesTypedArray)
-        .function("getPolygonMaterialIndicesTypedArray", &MeshWrapper::getPolygonMaterialIndicesTypedArray);
+        .function("getPolygonMaterialIndicesTypedArray", &MeshWrapper::getPolygonMaterialIndicesTypedArray)
+        // OpenGothic-style processed mesh data
+        .function("getProcessedMeshData", &MeshWrapper::getProcessedMeshData);
 
     // Main World wrapper - properties instead of count functions
     class_<WorldWrapper>("World")

@@ -85,6 +85,18 @@ namespace zenkit::wasm {
             , texture(material.texture) {}
     };
 
+    /// \brief Processed mesh data matching OpenGothic's PackedMesh pipeline
+    /// This struct contains mesh data after applying material deduplication,
+    /// composite vertex processing, and triangle sorting.
+    struct ProcessedMeshData {
+        std::vector<float> vertices;          // [x,y,z, nx,ny,nz, u,v, ...] per vertex (8 floats per vertex)
+        std::vector<uint32_t> indices;        // triangle indices into vertices array
+        std::vector<uint32_t> materialIds;    // per-triangle material ID (deduplicated)
+        std::vector<MaterialData> materials;  // deduplicated material list
+        
+        ProcessedMeshData() = default;
+    };
+
     struct OrientedBoundingBoxData {
         Vector3 center;
         std::vector<Vector3> axes;
@@ -478,6 +490,11 @@ namespace zenkit::wasm {
             return js_array;
         }
 
+        /// \brief Get processed mesh data matching OpenGothic's PackedMesh pipeline
+        /// This applies material deduplication, composite vertex processing (vertex+feature indices),
+        /// the feature index bit-shift fix, and triangle sorting by material.
+        ProcessedMeshData getProcessedMeshData() const;
+
     private:
         const zenkit::Mesh& mesh_;
 
@@ -509,6 +526,9 @@ namespace zenkit::wasm {
             }
             return Vector3(max);
         }
+
+        /// \brief Helper method to check if two materials are visually identical (for deduplication)
+        static bool isVisuallySame(const zenkit::Material& a, const zenkit::Material& b);
     };
 
     // Forward declaration for World wrapper
