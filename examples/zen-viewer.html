@@ -71,8 +71,9 @@
         function initThreeJS() {
             const canvas = document.getElementById('threejs-canvas');
             
-            // Scene
+            // Scene - match reference viewer
             scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x222222);
             
             // Initialize texture loader
             textureLoader = new THREE.TextureLoader();
@@ -83,21 +84,20 @@
             camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1.0, 100000);
             camera.position.set(0, 1000, 2000);
             
-            // Renderer with enhanced depth buffer settings
+            // Renderer with enhanced depth buffer settings - match reference viewer
             renderer = new THREE.WebGLRenderer({ 
                 canvas, 
                 antialias: true,
                 logarithmicDepthBuffer: true  // Better depth precision for large scenes
             });
             renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            renderer.outputColorSpace = THREE.SRGBColorSpace; // Critical for proper color display
             
             // Additional depth buffer settings for better rendering
             renderer.sortObjects = true;  // Ensure proper depth sorting
             renderer.autoClear = true;
             
-            // Note: No lighting needed since we use MeshBasicMaterial (unlit)
-            // This shows raw texture colors without lighting calculations
+            // Note: MeshBasicMaterial doesn't use lighting, so lights won't affect appearance
             
             // Simple orbit controls (manual implementation)
             setupControls();
@@ -306,7 +306,7 @@
                 for (let mi = 0; mi < matCount; mi++) {
                     const mat = processed.materials.get(mi);
                     const fallback = new THREE.MeshBasicMaterial({ 
-                        color: 0x8B7355, 
+                        color: 0xFFFFFF,  // WHITE - don't tint the texture!
                         side: THREE.DoubleSide,
                         transparent: true,
                         alphaTest: 0.01
