@@ -58,14 +58,9 @@
         import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.min.js';
         
         let ZenKit = null;
-        let scene, camera, renderer, controls;
+        let scene, camera, renderer;
         let worldMesh = null;
-        let stats = { fps: 0, triangles: 0, drawCalls: 0 };
-        let frameCount = 0;
-        let lastTime = performance.now();
-        let allLights = [];
-        let meshTexture = null;
-        let textureLoader = null;
+        let stats = { triangles: 0 };
 
         // Initialize Three.js Scene
         function initThreeJS() {
@@ -74,11 +69,6 @@
             // Scene - match reference viewer
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x222222);
-            
-            // Initialize texture loader
-            textureLoader = new THREE.TextureLoader();
-            
-            // Try to load a compiled Gothic texture later per-mesh
             
             // Camera with optimized near/far planes to reduce z-fighting
             camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1.0, 100000);
@@ -181,24 +171,24 @@
 
         async function tryLoadDefaultFile() {
             try {
-                updateStatus('🔍 Looking for DRAGONISLAND.ZEN...', 'loading');
+                updateStatus('🔍 Looking for world file...', 'loading');
                 
                 const response = await fetch('/public/game-assets/WORLDS/NEWWORLD/NEWWORLD.ZEN');
                 if (response.ok) {
                     const arrayBuffer = await response.arrayBuffer();
                     const uint8Array = new Uint8Array(arrayBuffer);
-                    await processZenFile(uint8Array, 'DRAGONISLAND.ZEN', arrayBuffer.byteLength);
+                    await processZenFile(uint8Array, arrayBuffer.byteLength);
                 } else {
-                    updateStatus('📂 DRAGONISLAND.ZEN not found.', 'loading');
+                    updateStatus('📂 World file not found.', 'loading');
                 }
             } catch (error) {
-                updateStatus('📂 DRAGONISLAND.ZEN not found.', 'loading');
+                updateStatus('📂 World file not found.', 'loading');
             }
         }
 
-        async function processZenFile(uint8Array, fileName, fileSize) {
+        async function processZenFile(uint8Array, fileSize) {
             try {
-                updateStatus(`📖 Loading ${fileName}...`, 'loading');
+                updateStatus(`📖 Loading world file...`, 'loading');
 
                 // Create world and load
                 const world = ZenKit.createWorld();
@@ -213,10 +203,10 @@
                 // Create 3D mesh
                 createThreeJSMesh(mesh);
 
-                updateStatus(`✅ ${fileName} loaded successfully!`, 'success');
+                updateStatus(`✅ World file loaded successfully!`, 'success');
 
             } catch (error) {
-                updateStatus(`❌ Failed to load ${fileName}: ${error.message}`, 'error');
+                updateStatus(`❌ Failed to load world file: ${error.message}`, 'error');
                 console.error('File processing error:', error);
             }
         }
@@ -355,24 +345,6 @@
             }
         }
 
-        function buildGroupsByMaterial(triCount, polyMatIdx) {
-            const groups = [];
-            // Build runs of consecutive triangles with same material index
-            let curMat = polyMatIdx[0] ?? 0;
-            let startTri = 0;
-            for (let t = 1; t <= triCount; t++) {
-                const mat = (t < triCount) ? polyMatIdx[t] : curMat - 1; // force flush at end
-                if (t === triCount || mat !== curMat) {
-                    const start = startTri * 3;          // non-indexed: vertex offset
-                    const count = (t - startTri) * 3;     // number of vertices
-                    groups.push({ start, count, materialIndex: curMat });
-                    startTri = t;
-                    curMat = mat;
-                }
-            }
-            return groups;
-        }
-
         
         function onWindowResize() {
             const canvas = document.getElementById('threejs-canvas');
@@ -415,37 +387,6 @@
             if (!name || typeof name !== 'string') return null;
             const base = name.replace(/\.[^.]*$/, '').toUpperCase();
             return `/public/game-assets/TEXTURES/_COMPILED/${base}-C.TEX`;
-        }
-
-        async function tryLoadFirstCompiledTexture(zenMesh) {
-            try {
-                const materials = zenMesh.materials;
-                if (!materials) { console.log('No materials found'); return null; }
-                const count = (typeof materials.size === 'function') ? materials.size() : (materials.length || 0);
-                console.log('Materials count:', count);
-                for (let i = 0; i < count; i++) {
-                    const m = (typeof materials.get === 'function') ? materials.get(i) : materials[i];
-                    if (!m) continue;
-                    if (m.texture && m.texture.length) {
-                        const url = tgaNameToCompiledUrl(m.texture);
-                        console.log('Trying texture', m.texture, '->', url);
-                        if (!url) continue;
-                        const tex = await loadCompiledTexAsDataTexture(url);
-                        if (tex) return tex;
-                    }
-                }
-                // Fallback: try known sample compiled textures present in repo
-                const fallbacks = [
-                    '/public/game-assets/TEXTURES/_COMPILED/ARMOR_BLOODWYN-C.TEX',
-                    '/public/game-assets/TEXTURES/_COMPILED/NW_CITY_INSIDEWALL_13-C.TEX'
-                ];
-                for (const url of fallbacks) {
-                    console.log('Trying fallback texture ->', url);
-                    const tex = await loadCompiledTexAsDataTexture(url);
-                    if (tex) return tex;
-                }
-            } catch (e) { console.warn('tryLoadFirstCompiledTexture error', e); }
-            return null;
         }
 
         // Initialize on page load
