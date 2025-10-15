@@ -61,6 +61,18 @@
         let scene, camera, renderer;
         let worldMesh = null;
         let stats = { triangles: 0 };
+        
+        // Asset caches to avoid reloading
+        const meshCache = new Map(); // path -> processed mesh data
+        const textureCache = new Map(); // path -> THREE.DataTexture
+        const materialCache = new Map(); // texture path -> THREE.Material
+        
+        // VOB management
+        const loadedVOBs = new Map(); // vob id -> THREE.Mesh
+        const allVOBs = []; // All VOB data from world
+        let lastCameraPosition = new THREE.Vector3();
+        const VOB_LOAD_DISTANCE = 5000; // Load VOBs within this distance
+        const VOB_UNLOAD_DISTANCE = 6000; // Unload VOBs beyond this distance
 
         // Initialize Three.js Scene
         function initThreeJS() {
@@ -202,6 +214,9 @@
 
                 // Create 3D mesh
                 createThreeJSMesh(mesh);
+
+                // Load and render VOBs
+                loadVOBs(world);
 
                 updateStatus(`✅ World file loaded successfully!`, 'success');
 
@@ -345,6 +360,390 @@
             }
         }
 
+        async function loadVOBs(world) {
+            try {
+                console.log('🔧 Collecting VOBs...');
+                const vobs = world.getVobs();
+                const vobCount = vobs.size();
+                console.log(`Found ${vobCount} root VOBs`);
+
+                let totalCount = 0;
+                const visualTypeCounts = {};
+
+                // Recursive function to collect VOB data
+                function collectVobTree(vob, vobId = 0) {
+                    totalCount++;
+                    
+                    // Track visual type statistics
+                    const typeKey = `Type_${vob.visual.type}`;
+                    visualTypeCounts[typeKey] = (visualTypeCounts[typeKey] || 0) + 1;
+                    
+                    // Only store VOBs that have visible meshes
+                    if (vob.showVisual && vob.visual.name && 
+                        (vob.visual.type === 1 || vob.visual.type === 2) &&
+                        !vob.visual.name.toUpperCase().endsWith('.TEX') && 
+                        !vob.visual.name.toUpperCase().endsWith('.TGA')) {
+                        
+                        allVOBs.push({
+                            id: `${vobId}_${totalCount}`,
+                            vob: vob,
+                            position: new THREE.Vector3(-vob.position.x, vob.position.y, vob.position.z),
+                            visualName: vob.visual.name
+                        });
+                    }
+                    
+                    // Process children recursively
+                    const childCount = vob.children.size();
+                    for (let i = 0; i < childCount; i++) {
+                        collectVobTree(vob.children.get(i), vobId);
+                    }
+                }
+
+                // Collect all VOBs
+                for (let i = 0; i < vobCount; i++) {
+                    const vob = vobs.get(i);
+                    collectVobTree(vob, i);
+                }
+
+                console.log(`📊 Total VOBs (including children): ${totalCount}`);
+                console.log(`📊 Renderable VOBs: ${allVOBs.length}`);
+                
+                const typeNames = ['DECAL', 'MESH', 'MULTI_RES_MESH', 'PARTICLE', 'CAMERA', 'MODEL', 'MORPH_MESH', 'UNKNOWN'];
+                console.log('📊 Visual type breakdown:');
+                Object.keys(visualTypeCounts).sort().forEach(key => {
+                    const typeNum = parseInt(key.split('_')[1]);
+                    const typeName = typeNames[typeNum] || 'UNKNOWN';
+                    console.log(`   ${typeName} (${typeNum}): ${visualTypeCounts[key]}`);
+                });
+                
+                // Start the streaming loader
+                console.log('🎬 Starting streaming VOB loader...');
+                requestAnimationFrame(updateVOBStreaming);
+                
+            } catch (error) {
+                console.error('❌ Failed to load VOBs:', error);
+            }
+        }
+
+        // Streaming VOB loader - loads/unloads based on camera distance
+        let vobLoadQueue = [];
+        let isLoadingVOB = false;
+        
+        async function updateVOBStreaming() {
+            const camPos = camera.position;
+            
+            // Check if camera moved significantly
+            if (camPos.distanceTo(lastCameraPosition) > 100) {
+                lastCameraPosition.copy(camPos);
+                
+                // Find VOBs to load/unload
+                vobLoadQueue = [];
+                const toUnload = [];
+                
+                for (const vobData of allVOBs) {
+                    const distance = camPos.distanceTo(vobData.position);
+                    const isLoaded = loadedVOBs.has(vobData.id);
+                    
+                    if (distance < VOB_LOAD_DISTANCE && !isLoaded) {
+                        vobLoadQueue.push(vobData);
+                    } else if (distance > VOB_UNLOAD_DISTANCE && isLoaded) {
+                        toUnload.push(vobData.id);
+                    }
+                }
+                
+                // Unload distant VOBs
+                for (const id of toUnload) {
+                    const mesh = loadedVOBs.get(id);
+                    if (mesh) {
+                        scene.remove(mesh);
+                        mesh.geometry.dispose();
+                        // Note: materials are cached and shared, don't dispose them
+                        loadedVOBs.delete(id);
+                    }
+                }
+                
+                // Sort queue by distance (closest first)
+                vobLoadQueue.sort((a, b) => {
+                    return camPos.distanceTo(a.position) - camPos.distanceTo(b.position);
+                });
+            }
+            
+            // Load one VOB per frame to avoid lag
+            if (!isLoadingVOB && vobLoadQueue.length > 0) {
+                isLoadingVOB = true;
+                const vobData = vobLoadQueue.shift();
+                await renderVOB(vobData.vob, vobData.id);
+                isLoadingVOB = false;
+            }
+            
+            // Update debug info
+            const statusEl = document.getElementById('status');
+            if (statusEl && allVOBs.length > 0) {
+                const loadedCount = loadedVOBs.size;
+                const totalCount = allVOBs.length;
+                const queueCount = vobLoadQueue.length;
+                statusEl.innerHTML = `📦 VOBs: ${loadedCount}/${totalCount} loaded | Queue: ${queueCount} | Cache: ${meshCache.size} meshes, ${textureCache.size} textures`;
+            }
+            
+            // Continue streaming
+            requestAnimationFrame(updateVOBStreaming);
+        }
+
+        // Cached mesh loader
+        async function loadMeshCached(meshPath) {
+            // Check cache first
+            if (meshCache.has(meshPath)) {
+                return meshCache.get(meshPath);
+            }
+            
+            try {
+                const response = await fetch(meshPath);
+                if (!response.ok) {
+                    return null;
+                }
+
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                // Load mesh with ZenKit
+                const vobMesh = ZenKit.createMesh();
+                const isMRM = meshPath.toUpperCase().endsWith('.MRM');
+                const loadResult = isMRM ? vobMesh.loadMRMFromArray(uint8Array) : vobMesh.loadFromArray(uint8Array);
+                
+                if (!loadResult || !loadResult.success) {
+                    return null;
+                }
+
+                // Get processed mesh data
+                const meshData = vobMesh.getMeshData();
+                const processed = meshData.getProcessedMeshData();
+                
+                // Check if mesh has data
+                if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
+                    return null;
+                }
+                
+                // Cache and return
+                meshCache.set(meshPath, processed);
+                return processed;
+            } catch (error) {
+                console.warn(`Failed to load mesh ${meshPath}:`, error);
+                return null;
+            }
+        }
+        
+        // Cached texture loader
+        async function loadTextureCached(texturePath) {
+            // Check cache first
+            if (textureCache.has(texturePath)) {
+                return textureCache.get(texturePath);
+            }
+            
+            try {
+                const tex = await loadCompiledTexAsDataTexture(texturePath);
+                if (tex) {
+                    textureCache.set(texturePath, tex);
+                }
+                return tex;
+            } catch (error) {
+                return null;
+            }
+        }
+        
+        // Cached material creator
+        async function getMaterialCached(materialData) {
+            const textureName = materialData.texture || '';
+            
+            // Check cache first
+            if (materialCache.has(textureName)) {
+                return materialCache.get(textureName);
+            }
+            
+            // Create material
+            const material = new THREE.MeshBasicMaterial({ 
+                color: 0xFFFFFF,
+                side: THREE.DoubleSide,
+                transparent: true,
+                alphaTest: 0.01
+            });
+            
+            // Load texture if available
+            if (textureName && textureName.length) {
+                const url = tgaNameToCompiledUrl(textureName);
+                const tex = await loadTextureCached(url);
+                if (tex) {
+                    material.map = tex;
+                    material.needsUpdate = true;
+                }
+            }
+            
+            // Cache and return
+            materialCache.set(textureName, material);
+            return material;
+        }
+
+        async function renderVOB(vob, vobId = null) {
+            // Skip if no visual or visual disabled
+            if (!vob.showVisual || !vob.visual.name) {
+                return false;
+            }
+
+            const visualName = vob.visual.name;
+            
+            // Only render mesh visuals
+            // Type 0 = DECAL (sprite/texture, not 3D mesh)
+            // Type 1 = MESH (static 3D mesh)
+            // Type 2 = MULTI_RESOLUTION_MESH (LOD mesh)
+            // Type 3 = PARTICLE_EFFECT, 4 = AI_CAMERA, 5 = MODEL, 6 = MORPH_MESH
+            if (vob.visual.type !== 1 && vob.visual.type !== 2) {
+                return false; // Skip non-mesh visuals (decals, particles, etc.)
+            }
+            
+            // Skip if visual name has texture extension (indicates it's not a mesh)
+            if (visualName.toUpperCase().endsWith('.TEX') || visualName.toUpperCase().endsWith('.TGA')) {
+                return false;
+            }
+
+            // Build mesh path - convert TGA/3DS/MMS/ASC to compiled mesh path
+            const meshPath = getMeshPath(visualName);
+            if (!meshPath) {
+                return false;
+            }
+
+            try {
+                // Load mesh with caching
+                const processed = await loadMeshCached(meshPath);
+                if (!processed) {
+                    return false;
+                }
+                
+                const vertCount = processed.vertices.size();
+                const idxCount = processed.indices.size();
+                const matCount = processed.materials.size();
+
+                // Build Three.js geometry
+                const positions = new Float32Array(idxCount * 3);
+                const normals = new Float32Array(idxCount * 3);
+                const uvs = new Float32Array(idxCount * 2);
+
+                for (let i = 0; i < idxCount; i++) {
+                    const vertIdx = processed.indices.get(i);
+                    const vertBase = vertIdx * 8;
+                    
+                    positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
+                    positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
+                    positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
+                    
+                    normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
+                    normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
+                    normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
+                    
+                    uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
+                    uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
+                }
+
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+                geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+                // Build material groups
+                const triCount = processed.materialIds.size();
+                geometry.clearGroups();
+                
+                let currentMatId = processed.materialIds.get(0);
+                let groupStart = 0;
+                
+                for (let t = 1; t <= triCount; t++) {
+                    const matId = (t < triCount) ? processed.materialIds.get(t) : -1;
+                    
+                    if (t === triCount || matId !== currentMatId) {
+                        const vertexStart = groupStart * 3;
+                        const vertexCount = (t - groupStart) * 3;
+                        geometry.addGroup(vertexStart, vertexCount, currentMatId);
+                        
+                        groupStart = t;
+                        currentMatId = matId;
+                    }
+                }
+
+                // Build materials using cache
+                const materialArray = [];
+                for (let mi = 0; mi < matCount; mi++) {
+                    const mat = processed.materials.get(mi);
+                    const material = await getMaterialCached(mat);
+                    materialArray.push(material);
+                }
+
+                // Create mesh
+                const vobMeshObj = new THREE.Mesh(geometry, materialArray);
+                
+                // Apply VOB transform using OpenGothic's approach
+                // Gothic's Mat3 is stored in COLUMN-MAJOR order (3 column vectors)
+                const rotArray = vob.rotation.toArray();
+                const m = [];
+                for (let i = 0; i < rotArray.size(); i++) {
+                    m.push(rotArray.get(i));
+                }
+                
+                // Build transform matrix exactly like OpenGothic does:
+                // Matrix4x4(vob.rotation.columns[0].x, vob.rotation.columns[1].x, vob.rotation.columns[2].x, vob.position.x,
+                //          vob.rotation.columns[0].y, vob.rotation.columns[1].y, vob.rotation.columns[2].y, vob.position.y,
+                //          vob.rotation.columns[0].z, vob.rotation.columns[1].z, vob.rotation.columns[2].z, vob.position.z,
+                //          0, 0, 0, 1);
+                // This transposes the column-major rotation matrix into rows and adds position
+                // We also need to mirror X like we do for the world mesh
+                const transformMat = new THREE.Matrix4();
+                transformMat.set(
+                    -m[0], -m[3], -m[6], -vob.position.x,  // Negate X components for mirroring
+                     m[1],  m[4],  m[7],  vob.position.y,
+                     m[2],  m[5],  m[8],  vob.position.z,
+                    0, 0, 0, 1
+                );
+                
+                // Decompose matrix into position, quaternion, scale for Three.js
+                const pos = new THREE.Vector3();
+                const quat = new THREE.Quaternion();
+                const scale = new THREE.Vector3();
+                transformMat.decompose(pos, quat, scale);
+                
+                vobMeshObj.position.copy(pos);
+                vobMeshObj.quaternion.copy(quat);
+                vobMeshObj.scale.copy(scale);
+                
+                scene.add(vobMeshObj);
+                
+                // Register loaded VOB if we have an ID
+                if (vobId) {
+                    loadedVOBs.set(vobId, vobMeshObj);
+                }
+                
+                return true; // Successfully rendered
+
+            } catch (error) {
+                console.warn(`Failed to render VOB ${visualName}:`, error);
+                return false;
+            }
+        }
+
+        function getMeshPath(visualName) {
+            if (!visualName || typeof visualName !== 'string') return null;
+            
+            const upper = visualName.toUpperCase();
+            
+            // Remove extension and get base name
+            const base = upper.replace(/\.(3DS|MMS|ASC|TGA)$/i, '');
+            
+            // Meshes don't have -C suffix like textures do
+            // Try .MRM (Multi-Resolution Mesh) first, then .MSH
+            const possiblePaths = [
+                `/public/game-assets/MESHES/_COMPILED/${base}.MRM`,
+                `/public/game-assets/MESHES/_COMPILED/${base}.MSH`,
+            ];
+            
+            // For now, return the first possibility (we'll check existence in fetch)
+            return possiblePaths[0];
+        }
         
         function onWindowResize() {
             const canvas = document.getElementById('threejs-canvas');

@@ -100,7 +100,9 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
 
     // Matrix 3x3 data structure
     class_<Matrix3x3Data>("Matrix3x3Data")
-        .function("get", &Matrix3x3Data::get);
+        .function("get", &Matrix3x3Data::get)
+        .function("getIndex", &Matrix3x3Data::getIndex)
+        .function("toArray", &Matrix3x3Data::toArray);
 
     // Raw data result structure
     class_<RawDataResult>("RawDataResult")

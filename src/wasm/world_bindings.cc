@@ -102,6 +102,18 @@ namespace zenkit::wasm {
             return std::make_unique<MeshWrapper>(world_.world_mesh);
         }
 
+        // Get all VOBs from the world
+        std::vector<VobData> getVobs() const {
+            std::vector<VobData> vobs;
+            vobs.reserve(world_.world_vobs.size());
+            for (const auto& vob : world_.world_vobs) {
+                if (vob) {
+                    vobs.emplace_back(*vob);
+                }
+            }
+            return vobs;
+        }
+
     private:
         World world_;
         std::string last_error_;
@@ -154,6 +166,25 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("axes", &OrientedBoundingBoxData::axes)
         .field("half_width", &OrientedBoundingBoxData::half_width);
 
+    // Matrix3x3Data is registered in zenkit_wasm.cc
+
+    // VisualData for VOB visuals
+    value_object<VisualData>("VisualData")
+        .field("name", &VisualData::name)
+        .field("type", &VisualData::type);
+
+    // VobData - Visual Objects
+    value_object<VobData>("VobData")
+        .field("id", &VobData::id)
+        .field("vobName", &VobData::vob_name)
+        .field("type", &VobData::type)
+        .field("position", &VobData::position)
+        .field("rotation", &VobData::rotation)
+        .field("visual", &VobData::visual)
+        .field("showVisual", &VobData::show_visual)
+        .field("cdDynamic", &VobData::cd_dynamic)
+        .field("children", &VobData::children);
+
     // ProcessedMeshData - OpenGothic-style processed mesh
     value_object<ProcessedMeshData>("ProcessedMeshData")
         .field("vertices", &ProcessedMeshData::vertices)
@@ -168,6 +199,7 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
     register_vector<uint32_t>("VectorUint32");
     register_vector<float>("VectorFloat");
     register_vector<MaterialData>("VectorMaterialData");
+    register_vector<VobData>("VectorVobData");
 
     // MeshData - expose actual data as properties with improved safety
     class_<MeshWrapper>("MeshData")
@@ -214,8 +246,21 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .property("hasSkyController", &WorldWrapper::hasSkyController)
 
         // Mesh access as property
-        .property("mesh", &WorldWrapper::getMesh, allow_raw_pointers());
+        .property("mesh", &WorldWrapper::getMesh, allow_raw_pointers())
+        
+        // VOBs access
+        .function("getVobs", &WorldWrapper::getVobs);
 
-    // Factory function
+    // Standalone Mesh class for loading mesh files
+    class_<StandaloneMeshWrapper>("Mesh")
+        .function("loadFromArray", &StandaloneMeshWrapper::loadFromArray)
+        .function("loadMRMFromArray", &StandaloneMeshWrapper::loadMRMFromArray)
+        .function("getMeshData", &StandaloneMeshWrapper::getMeshData, allow_raw_pointers())
+        .function("isMRM", &StandaloneMeshWrapper::isMRM);
+
+    // Factory functions
     function("createWorld", &createWorld);
+    function("createMesh", select_overload<std::unique_ptr<StandaloneMeshWrapper>()>([]() {
+        return std::make_unique<StandaloneMeshWrapper>();
+    }));
 }

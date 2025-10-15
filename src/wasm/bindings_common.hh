@@ -12,8 +12,11 @@
 #include "zenkit/Stream.hh"
 #include "zenkit/Misc.hh"
 #include "zenkit/Mesh.hh"
+#include "zenkit/MultiResolutionMesh.hh"
 #include "zenkit/Archive.hh"
 #include "zenkit/Texture.hh"
+#include "zenkit/World.hh"
+#include "zenkit/vobs/VirtualObject.hh"
 
 namespace zenkit::wasm {
 
@@ -149,6 +152,41 @@ namespace zenkit::wasm {
         float get(int row, int col) const {
             return data[row * 3 + col];
         }
+        
+        float getIndex(int index) const {
+            return data[index];
+        }
+        
+        std::vector<float> toArray() const {
+            return std::vector<float>(data, data + 9);
+        }
+    };
+
+    /// \brief Visual data for a VOB
+    struct VisualData {
+        std::string name;           // Mesh filename (e.g., "BEDNAME.3DS")
+        uint32_t type;              // VisualType enum value
+        
+        VisualData() = default;
+        VisualData(const zenkit::Visual& visual)
+            : name(visual.name)
+            , type(static_cast<uint32_t>(visual.type)) {}
+    };
+
+    /// \brief VOB (Visual Object) data - represents interactive/static objects in the world
+    struct VobData {
+        uint32_t id;                // Unique VOB ID
+        std::string vob_name;       // VOB name
+        uint32_t type;              // VirtualObjectType enum value
+        Vector3 position;           // World position
+        Matrix3x3Data rotation;     // Rotation matrix
+        VisualData visual;          // Visual information (mesh name, type)
+        bool show_visual;           // Whether to render the visual
+        bool cd_dynamic;            // Collision detection enabled
+        std::vector<VobData> children; // Child VOBs
+        
+        VobData() = default;
+        VobData(const zenkit::VirtualObject& vob);  // Forward declaration, implemented in .cc
     };
 
     struct BoundingBoxData {
@@ -551,6 +589,28 @@ namespace zenkit::wasm {
 
     private:
         zenkit::Texture tex_;
+    };
+
+    // Standalone Mesh wrapper for loading mesh files
+    class StandaloneMeshWrapper {
+    public:
+        StandaloneMeshWrapper() = default;
+        ~StandaloneMeshWrapper() = default;
+
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+        Result<bool> loadMRMFromArray(const emscripten::val& uint8_array);
+
+        // Get mesh wrapper for accessing mesh data
+        std::unique_ptr<MeshWrapper> getMeshData() const {
+            return std::make_unique<MeshWrapper>(mesh_);
+        }
+        
+        bool isMRM() const { return is_mrm_; }
+
+    private:
+        zenkit::Mesh mesh_;
+        zenkit::MultiResolutionMesh mrm_;
+        bool is_mrm_ = false;
     };
 
 } // namespace zenkit::wasm

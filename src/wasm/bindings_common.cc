@@ -3,6 +3,8 @@
 #include "bindings_common.hh"
 #include "zenkit/Stream.hh"
 #include "zenkit/Texture.hh"
+#include "zenkit/World.hh"
+#include "zenkit/vobs/VirtualObject.hh"
 #include <algorithm>
 #include <map>
 #include <unordered_map>
@@ -272,6 +274,94 @@ namespace zenkit::wasm {
         }
         
         return result;
+    }
+
+    // VobData constructor implementation
+    VobData::VobData(const zenkit::VirtualObject& vob)
+        : id(vob.id)
+        , vob_name(vob.vob_name)
+        , type(static_cast<uint32_t>(vob.type))
+        , position(vob.position)
+        , rotation(vob.rotation)
+        , visual(*vob.visual)
+        , show_visual(vob.show_visual)
+        , cd_dynamic(vob.cd_dynamic) {
+        
+        // Recursively convert children
+        children.reserve(vob.children.size());
+        for (const auto& child : vob.children) {
+            children.emplace_back(*child);
+        }
+    }
+
+    // StandaloneMeshWrapper implementation
+    Result<bool> StandaloneMeshWrapper::loadFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            mesh_.load(reader.get(), false); // false = don't force wide indices
+            is_mrm_ = false;
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            return Result<bool>(e.what());
+        }
+    }
+
+    Result<bool> StandaloneMeshWrapper::loadMRMFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            mrm_.load(reader.get());
+            is_mrm_ = true;
+            
+            // Convert MRM to Mesh for rendering
+            // MRM has: positions, normals, sub_meshes (with triangles, wedges), materials
+            mesh_.vertices = mrm_.positions;
+            mesh_.materials = mrm_.materials;
+            mesh_.bbox = mrm_.bbox;
+            mesh_.obb = mrm_.obbox;
+            
+            // Build features from wedges (MRM uses wedges for normals+UVs per vertex)
+            // We need to create a feature for each unique wedge
+            mesh_.features.clear();
+            mesh_.polygons.vertex_indices.clear();
+            mesh_.polygons.material_indices.clear();
+            mesh_.polygons.feature_indices.clear();
+            
+            uint32_t material_idx = 0;
+            for (const auto& submesh : mrm_.sub_meshes) {
+                for (const auto& tri : submesh.triangles) {
+                    // Add triangle indices - each wedge becomes a feature
+                    for (int i = 0; i < 3; ++i) {
+                        auto wedge_idx = tri.wedges[i];
+                        if (wedge_idx < submesh.wedges.size()) {
+                            const auto& wedge = submesh.wedges[wedge_idx];
+                            
+                            // Add vertex index
+                            mesh_.polygons.vertex_indices.push_back(wedge.index);
+                            
+                            // Create feature from wedge
+                            uint32_t feature_idx = mesh_.features.size();
+                            zenkit::VertexFeature feat;
+                            feat.normal = wedge.normal;
+                            feat.texture = wedge.texture;
+                            feat.light = 0xFFFFFFFF;
+                            mesh_.features.push_back(feat);
+                            
+                            mesh_.polygons.feature_indices.push_back(feature_idx);
+                        }
+                    }
+                    mesh_.polygons.material_indices.push_back(material_idx);
+                }
+                material_idx++;
+            }
+            
+            // Copy to polygon_*_indices for compatibility
+            mesh_.polygon_vertex_indices = mesh_.polygons.vertex_indices;
+            mesh_.polygon_feature_indices = mesh_.polygons.feature_indices;
+            
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            return Result<bool>(e.what());
+        }
     }
 
 } // namespace zenkit::wasm
