@@ -84,7 +84,8 @@
             
             // Camera with optimized near/far planes to reduce z-fighting
             camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1.0, 100000);
-            camera.position.set(0, 1000, 2000);
+            camera.position.set(3426, 672, 140);
+            camera.lookAt(0, 0, 0); // Make camera look at origin
             
             // Renderer with enhanced depth buffer settings - match reference viewer
             renderer = new THREE.WebGLRenderer({ 
@@ -111,8 +112,14 @@
         function setupControls() {
             let isMouseDown = false;
             let mouseX = 0, mouseY = 0;
-            let targetX = 0, targetY = 0;
-            let distance = 3000;
+            
+            // Calculate initial angles from camera position (0, 1000, 2000)
+            const initialPos = camera.position;
+            let distance = Math.sqrt(initialPos.x * initialPos.x + initialPos.y * initialPos.y + initialPos.z * initialPos.z);
+            let targetY = Math.asin(initialPos.y / distance);
+            let targetX = Math.atan2(initialPos.z, initialPos.x);
+            
+            // Camera initialized successfully
             
             const canvas = renderer.domElement;
             
@@ -428,12 +435,17 @@
         // Streaming VOB loader - loads/unloads based on camera distance
         let vobLoadQueue = [];
         let isLoadingVOB = false;
+        let isFirstVOBUpdate = true; // Force initial load
         
         async function updateVOBStreaming() {
             const camPos = camera.position;
             
-            // Check if camera moved significantly
-            if (camPos.distanceTo(lastCameraPosition) > 100) {
+            // Check if camera moved significantly OR if this is the first update
+            const distance = lastCameraPosition.distanceTo(camPos);
+            const shouldUpdate = isFirstVOBUpdate || distance > 100;
+            
+            if (shouldUpdate) {
+                isFirstVOBUpdate = false; // Clear flag after first run
                 lastCameraPosition.copy(camPos);
                 
                 // Find VOBs to load/unload
@@ -474,6 +486,9 @@
                 const vobData = vobLoadQueue.shift();
                 await renderVOB(vobData.vob, vobData.id);
                 isLoadingVOB = false;
+                
+                // Re-render scene to show the new VOB
+                renderer.render(scene, camera);
             }
             
             // Update debug info
