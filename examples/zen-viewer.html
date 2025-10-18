@@ -317,11 +317,11 @@
                 const materialArray = [];
                 for (let mi = 0; mi < matCount; mi++) {
                     const mat = processed.materials.get(mi);
-                    const fallback = new THREE.MeshBasicMaterial({ 
+                    const fallback = new THREE.MeshBasicMaterial({
                         color: 0xFFFFFF,  // WHITE - don't tint the texture!
                         side: THREE.DoubleSide,
-                        transparent: true,
-                        alphaTest: 0.01
+                        transparent: false,  // Disable transparency for alpha-tested materials
+                        alphaTest: 0.5       // Use proper alpha test threshold like OpenGothic
                     });
                     materialArray.push(fallback);
                     
@@ -575,11 +575,11 @@
             }
             
             // Create material
-            const material = new THREE.MeshBasicMaterial({ 
+            const material = new THREE.MeshBasicMaterial({
                 color: 0xFFFFFF,
                 side: THREE.DoubleSide,
-                transparent: true,
-                alphaTest: 0.01
+                transparent: false,  // Disable transparency for alpha-tested materials
+                alphaTest: 0.5       // Use proper alpha test threshold like OpenGothic
             });
             
             // Load texture if available
