@@ -20,8 +20,8 @@ public:
     }
 
     bool run() {
-        std::cout << "VDF Extractor - Gothic Game Asset Bootstrapper\n";
-        std::cout << "==============================================\n";
+        std::cout << "Gothic Asset Extractor - Game Asset Bootstrapper\n";
+        std::cout << "=================================================\n";
         std::cout << "Game location: " << game_path_ << "\n";
         std::cout << "Output location: " << output_path_ << "\n\n";
 
@@ -38,6 +38,10 @@ public:
             return false;
         }
 
+        // Check for _work/Data folder (additional assets)
+        fs::path work_data_path = fs::path(game_path_) / "_work" / "Data";
+        bool has_work_data = fs::exists(work_data_path);
+
         // Create output directory
         try {
             fs::create_directories(output_path_);
@@ -48,35 +52,111 @@ public:
 
         // Find all VDF files
         std::vector<fs::path> vdf_files = find_vdf_files(data_path);
-        
-        if (vdf_files.empty()) {
-            std::cout << "No VDF files found in Data directory." << std::endl;
-            return true;
-        }
 
-        std::cout << "Found " << vdf_files.size() << " VDF files:\n";
-        for (const auto& vdf : vdf_files) {
-            std::cout << "  - " << vdf.filename().string() << std::endl;
-        }
-        std::cout << std::endl;
+        std::cout << "Asset sources found:\n";
 
-        // Extract each VDF
-        size_t success_count = 0;
-        for (const auto& vdf_path : vdf_files) {
-            if (extract_vdf(vdf_path)) {
-                success_count++;
+        if (!vdf_files.empty()) {
+            std::cout << "  VDF files: " << vdf_files.size() << "\n";
+            for (const auto& vdf : vdf_files) {
+                std::cout << "    - " << vdf.filename().string() << std::endl;
             }
         }
 
+        if (has_work_data) {
+            std::cout << "  _work/Data directory: found\n";
+        }
+
+        if (vdf_files.empty() && !has_work_data) {
+            std::cout << "  No asset sources found.\n";
+            return true;
+        }
+        std::cout << std::endl;
+
+        // Extract from VDF files
+        size_t vdf_success_count = 0;
+        for (const auto& vdf_path : vdf_files) {
+            if (extract_vdf(vdf_path)) {
+                vdf_success_count++;
+            }
+        }
+
+        // Extract from _work/Data directory
+        size_t work_data_files = 0;
+        if (has_work_data) {
+            work_data_files = extract_work_data(work_data_path);
+        }
+
         std::cout << "\nExtraction complete!\n";
-        std::cout << "Successfully extracted " << success_count << " out of " << vdf_files.size() << " VDF files.\n";
-        
-        return success_count > 0;
+        if (!vdf_files.empty()) {
+            std::cout << "VDF files: " << vdf_success_count << "/" << vdf_files.size() << " successful\n";
+        }
+        if (has_work_data) {
+            std::cout << "_work/Data: " << work_data_files << " files extracted\n";
+        }
+
+        return (vdf_success_count > 0 || work_data_files > 0);
+    }
+
+    size_t extract_work_data(const fs::path& work_data_path) {
+        std::cout << "Extracting _work/Data directory...";
+
+        try {
+            size_t file_count = 0;
+            extract_filesystem_tree(work_data_path, fs::path(output_path_), fs::path(), file_count);
+
+            std::cout << " OK (" << file_count << " files)\n";
+            return file_count;
+
+        } catch (const std::exception& e) {
+            std::cout << " FAILED (" << e.what() << ")\n";
+            return 0;
+        }
     }
 
 private:
     std::string game_path_;
     std::string output_path_;
+
+    void extract_filesystem_tree(const fs::path& source_root, const fs::path& dest_root, const fs::path& relative_path, size_t& file_count) {
+        fs::path source_path = source_root / relative_path;
+
+        try {
+            for (const auto& entry : fs::directory_iterator(source_path)) {
+                const auto& path = entry.path();
+                std::string filename = path.filename().string();
+
+                if (entry.is_directory()) {
+                    // Capitalize directory names to match VDF format
+                    std::string capitalized_name = filename;
+                    std::transform(capitalized_name.begin(), capitalized_name.end(), capitalized_name.begin(), ::toupper);
+
+                    fs::path new_relative_path = relative_path / capitalized_name;
+                    fs::path dest_dir = dest_root / new_relative_path;
+
+                    std::error_code ec;
+                    fs::create_directories(dest_dir, ec);
+
+                    // Recursively process subdirectory
+                    extract_filesystem_tree(source_root, dest_root, relative_path / filename, file_count);
+                } else if (entry.is_regular_file()) {
+                    // Copy file to destination (keep original filename)
+                    fs::path dest_file = dest_root / relative_path / filename;
+
+                    std::error_code ec;
+                    fs::create_directories(dest_file.parent_path(), ec);
+
+                    fs::copy_file(path, dest_file, fs::copy_options::overwrite_existing, ec);
+                    if (ec) {
+                        std::cerr << "\n  Warning: Failed to copy file " << path << " to " << dest_file << ": " << ec.message() << std::endl;
+                    } else {
+                        file_count++;
+                    }
+                }
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "\n  Warning: Error reading directory " << source_path << ": " << e.what() << std::endl;
+        }
+    }
 
     std::vector<fs::path> find_vdf_files(const fs::path& data_path) {
         std::vector<fs::path> vdf_files;
@@ -217,9 +297,13 @@ void print_usage(const char* program_name) {
     std::cout << "  game_location      Path to Gothic game installation (e.g., /Users/artur/dev/gothic/Gothic2)\n";
     std::cout << "  assets_destination Path where extracted assets will be stored (e.g., /Users/artur/dev/gothic/ZenKit/public/game-assets)\n\n";
     std::cout << "Description:\n";
-    std::cout << "  This tool extracts VDF (Virtual File System) archives from a Gothic game installation\n";
-    std::cout << "  to bootstrap assets for editor development. It recursively searches the Data folder\n";
-    std::cout << "  for all .vdf files and extracts their contents to the specified destination.\n\n";
+    std::cout << "  This tool extracts assets from a Gothic game installation to bootstrap assets for\n";
+    std::cout << "  editor development. It extracts from two sources:\n";
+    std::cout << "  1. VDF (Virtual File System) archives found in the Data folder\n";
+    std::cout << "  2. Additional assets from the _work/Data directory (if present)\n";
+    std::cout << "  \n";
+    std::cout << "  Directory names from _work/Data are capitalized to match VDF folder structure.\n";
+    std::cout << "  All assets are merged into the specified destination directory.\n\n";
     std::cout << "Examples:\n";
     std::cout << "  " << program_name << " /usr/games/Gothic2 ./public/game-assets\n";
     std::cout << "  " << program_name << " \"C:\\Games\\Gothic II\" \"D:\\Projects\\assets\"\n";
