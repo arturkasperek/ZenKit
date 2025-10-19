@@ -4,6 +4,9 @@
 #include "zenkit/Stream.hh"
 #include "zenkit/Texture.hh"
 #include "zenkit/World.hh"
+#include "zenkit/Model.hh"
+#include "zenkit/MultiResolutionMesh.hh"
+#include "zenkit/SoftSkinMesh.hh"
 #include "zenkit/vobs/VirtualObject.hh"
 #include <algorithm>
 #include <map>
@@ -362,6 +365,107 @@ namespace zenkit::wasm {
         } catch (const std::exception& e) {
             return Result<bool>(e.what());
         }
+    }
+
+    // ModelWrapper method implementations
+    Result<bool> ModelWrapper::load(uintptr_t data_ptr, size_t length) {
+        try {
+            auto reader = create_reader_from_buffer(data_ptr, length);
+            model_.load(reader.get());
+            last_error_.clear();
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
+        }
+    }
+
+    Result<bool> ModelWrapper::loadFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            model_.load(reader.get());
+            last_error_.clear();
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
+        }
+    }
+
+    bool ModelWrapper::isLoaded() const {
+        return last_error_.empty() && (!model_.hierarchy.nodes.empty() || !model_.mesh.meshes.empty());
+    }
+
+    std::vector<std::string> ModelWrapper::getAttachmentNames() const {
+        std::vector<std::string> names;
+        names.reserve(model_.mesh.attachments.size());
+        for (const auto& pair : model_.mesh.attachments) {
+            names.push_back(pair.first);
+        }
+        return names;
+    }
+
+    const zenkit::MultiResolutionMesh* ModelWrapper::getAttachment(const std::string& name) const {
+        auto it = model_.mesh.attachments.find(name);
+        return it != model_.mesh.attachments.end() ? &it->second : nullptr;
+    }
+
+    ProcessedMeshData ModelWrapper::convertAttachmentToProcessedMesh(const zenkit::MultiResolutionMesh* attachment) const {
+        if (!attachment) {
+            return ProcessedMeshData{}; // Return empty data
+        }
+        ProcessedMeshData result;
+
+        // Convert positions and normals
+        size_t vertex_count = (*attachment).positions.size();
+        result.vertices.reserve(vertex_count * 8); // x,y,z,nx,ny,nz,u,v
+
+        // For MultiResolutionMesh, we need to build vertex data from submeshes
+        // Each submesh has wedges with position/normal/uv data
+        uint32_t current_material_index = 0;
+
+        for (const auto& submesh : (*attachment).sub_meshes) {
+            // Add the submesh material to our materials list
+            MaterialData mat_data;
+            mat_data.name = submesh.mat.name;
+            mat_data.group = static_cast<uint32_t>(submesh.mat.group);
+            mat_data.texture = submesh.mat.texture;
+            result.materials.push_back(mat_data);
+
+            for (const auto& wedge : submesh.wedges) {
+                // Position
+                const auto& pos = (*attachment).positions[wedge.index];
+                result.vertices.push_back(pos.x);
+                result.vertices.push_back(pos.y);
+                result.vertices.push_back(pos.z);
+
+                // Normal
+                const auto& normal = (*attachment).normals[wedge.index];
+                result.vertices.push_back(normal.x);
+                result.vertices.push_back(normal.y);
+                result.vertices.push_back(normal.z);
+
+                // UV coordinates
+                result.vertices.push_back(wedge.texture.x);
+                result.vertices.push_back(wedge.texture.y);
+            }
+
+            // Add triangles
+            for (const auto& triangle : submesh.triangles) {
+                // Convert wedge indices to vertex indices in our result array
+                size_t base_index = result.vertices.size() / 8 - submesh.wedges.size();
+                result.indices.push_back(base_index + triangle.wedges[0]);
+                result.indices.push_back(base_index + triangle.wedges[1]);
+                result.indices.push_back(base_index + triangle.wedges[2]);
+
+                // All triangles in this submesh use the same material index
+                result.materialIds.push_back(current_material_index);
+            }
+
+            current_material_index++;
+        }
+
+        return result;
     }
 
 } // namespace zenkit::wasm

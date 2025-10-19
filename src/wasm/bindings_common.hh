@@ -12,7 +12,9 @@
 #include "zenkit/Stream.hh"
 #include "zenkit/Misc.hh"
 #include "zenkit/Mesh.hh"
+#include "zenkit/Model.hh"
 #include "zenkit/MultiResolutionMesh.hh"
+#include "zenkit/SoftSkinMesh.hh"
 #include "zenkit/Archive.hh"
 #include "zenkit/Texture.hh"
 #include "zenkit/World.hh"
@@ -611,6 +613,57 @@ namespace zenkit::wasm {
         zenkit::Mesh mesh_;
         zenkit::MultiResolutionMesh mrm_;
         bool is_mrm_ = false;
+    };
+
+    /// \brief WebAssembly wrapper for zenkit::Model that provides access to model data
+    class ModelWrapper {
+    public:
+        ModelWrapper() = default;
+        explicit ModelWrapper(const zenkit::Model& model) : model_(model) {}
+        ~ModelWrapper() = default;
+
+        // Non-copyable but movable
+        ModelWrapper(const ModelWrapper&) = delete;
+        ModelWrapper& operator=(const ModelWrapper&) = delete;
+        ModelWrapper(ModelWrapper&&) = default;
+        ModelWrapper& operator=(ModelWrapper&&) = default;
+
+        /// \brief Load model from WebAssembly memory buffer
+        Result<bool> load(uintptr_t data_ptr, size_t length);
+
+        /// \brief Load model from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Check if model loaded successfully
+        bool isLoaded() const;
+
+        /// \brief Get the model hierarchy
+        const zenkit::ModelHierarchy& getHierarchy() const { return model_.hierarchy; }
+
+        /// \brief Get the model mesh
+        const zenkit::ModelMesh& getMesh() const { return model_.mesh; }
+
+        /// \brief Get all soft-skin meshes (for animated characters)
+        const std::vector<zenkit::SoftSkinMesh>& getSoftSkinMeshes() const { return model_.mesh.meshes; }
+
+        /// \brief Get all attachment names as a vector (for JavaScript iteration)
+        std::vector<std::string> getAttachmentNames() const;
+
+        /// \brief Get all attachment meshes (for static geometry like chests)
+        const std::unordered_map<std::string, zenkit::MultiResolutionMesh>& getAttachments() const { return model_.mesh.attachments; }
+
+        /// \brief Get a specific attachment by name
+        const zenkit::MultiResolutionMesh* getAttachment(const std::string& name) const;
+
+        /// \brief Convert MultiResolutionMesh to ProcessedMeshData for Three.js rendering
+        ProcessedMeshData convertAttachmentToProcessedMesh(const zenkit::MultiResolutionMesh* attachment) const;
+
+    private:
+        zenkit::Model model_;
+        mutable std::string last_error_;
     };
 
 } // namespace zenkit::wasm

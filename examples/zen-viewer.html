@@ -66,6 +66,7 @@
         const meshCache = new Map(); // path -> processed mesh data
         const textureCache = new Map(); // path -> THREE.DataTexture
         const materialCache = new Map(); // texture path -> THREE.Material
+        const modelCache = new Map(); // path -> ZenKit Model instance
         
         // VOB management
         const loadedVOBs = new Map(); // vob id -> THREE.Mesh
@@ -192,7 +193,7 @@
             try {
                 updateStatus('🔍 Looking for world file...', 'loading');
                 
-                const response = await fetch('/public/game-assets/WORLDS/NEWWORLD/NEWWORLD.ZEN');
+                const response = await fetch('/TOTENINSEL.ZEN');
                 if (response.ok) {
                     const arrayBuffer = await response.arrayBuffer();
                     const uint8Array = new Uint8Array(arrayBuffer);
@@ -386,9 +387,9 @@
                     visualTypeCounts[typeKey] = (visualTypeCounts[typeKey] || 0) + 1;
                     
                     // Only store VOBs that have visible meshes
-                    if (vob.showVisual && vob.visual.name && 
-                        (vob.visual.type === 1 || vob.visual.type === 2) &&
-                        !vob.visual.name.toUpperCase().endsWith('.TEX') && 
+                    if (vob.showVisual && vob.visual.name &&
+                        (vob.visual.type === 1 || vob.visual.type === 2 || vob.visual.type === 5 || vob.visual.type === 6) &&
+                        !vob.visual.name.toUpperCase().endsWith('.TEX') &&
                         !vob.visual.name.toUpperCase().endsWith('.TGA')) {
                         
                         allVOBs.push({
@@ -546,7 +547,47 @@
                 return null;
             }
         }
-        
+
+        // Cached model loader for .MDL files
+        async function loadModelCached(modelPath) {
+            // Check cache first
+            if (modelCache.has(modelPath)) {
+                return modelCache.get(modelPath);
+            }
+
+            try {
+                const response = await fetch(modelPath);
+                if (!response.ok) {
+                    return null;
+                }
+
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                // Load model with ZenKit
+                const model = ZenKit.createModel();
+                const loadResult = model.loadFromArray(uint8Array);
+
+                if (!loadResult || !loadResult.success) {
+                    console.warn(`Failed to load model ${modelPath}:`, model.getLastError());
+                    return null;
+                }
+
+                if (!model.isLoaded) {
+                    console.warn(`Model ${modelPath} loaded but reports not loaded`);
+                    return null;
+                }
+
+                // Cache and return
+                modelCache.set(modelPath, model);
+                console.log(`✅ Loaded model ${modelPath}`);
+                return model;
+            } catch (error) {
+                console.warn(`Failed to load model ${modelPath}:`, error);
+                return null;
+            }
+        }
+
         // Cached texture loader
         async function loadTextureCached(texturePath) {
             // Check cache first
@@ -610,7 +651,7 @@
             // Type 1 = MESH (static 3D mesh)
             // Type 2 = MULTI_RESOLUTION_MESH (LOD mesh)
             // Type 3 = PARTICLE_EFFECT, 4 = AI_CAMERA, 5 = MODEL, 6 = MORPH_MESH
-            if (vob.visual.type !== 1 && vob.visual.type !== 2) {
+            if (vob.visual.type !== 1 && vob.visual.type !== 2 && vob.visual.type !== 5 && vob.visual.type !== 6) {
                 return false; // Skip non-mesh visuals (decals, particles, etc.)
             }
             
@@ -619,12 +660,23 @@
                 return false;
             }
 
-            // Build mesh path - convert TGA/3DS/MMS/ASC to compiled mesh path
-            const meshPath = getMeshPath(visualName);
-            if (!meshPath) {
-                return false;
-            }
+            // Handle different visual types
+            if (vob.visual.type === 5 || vob.visual.type === 6) {
+                // MODEL (5) or MORPH_MESH (6) - load .MDL file
+                return await renderModelVOB(vob, vobId);
+            } else {
+                // MESH (1) or MULTI_RES_MESH (2) - load mesh file
+                const meshPath = getMeshPath(visualName);
+                if (!meshPath) {
+                    return false;
+                }
 
+                return await renderMeshVOB(vob, vobId, meshPath);
+            }
+        }
+
+        // Render mesh VOB (extracted from renderVOB)
+        async function renderMeshVOB(vob, vobId, meshPath) {
             try {
                 // Load mesh with caching
                 const processed = await loadMeshCached(meshPath);
@@ -736,9 +788,158 @@
                 return true; // Successfully rendered
 
             } catch (error) {
-                console.warn(`Failed to render VOB ${visualName}:`, error);
+                console.warn(`Failed to render mesh VOB ${vob.visual.name}:`, error);
                 return false;
             }
+        }
+
+        // Render model VOB (for MODEL and MORPH_MESH types)
+        async function renderModelVOB(vob, vobId) {
+            try {
+                const visualName = vob.visual.name;
+
+                // Build model path - convert to .MDL file
+                const modelPath = getModelPath(visualName);
+                if (!modelPath) {
+                    return false;
+                }
+
+                // Load model with caching
+                const model = await loadModelCached(modelPath);
+                if (!model) {
+                    return false;
+                }
+
+                // For now, render all attachments as a group
+                // In the future, we could render SoftSkinMesh for animated characters
+                const attachmentNames = model.getAttachmentNames();
+
+                if (attachmentNames.size() === 0) {
+                    console.log(`Model ${modelPath} has no attachments to render`);
+                    return false;
+                }
+
+                // Create a group to hold all attachment meshes
+                const modelGroup = new THREE.Group();
+
+                // Render each attachment
+                for (let i = 0; i < attachmentNames.size(); i++) {
+                    const attachmentName = attachmentNames.get(i);
+                    const attachment = model.getAttachment(attachmentName);
+                    if (!attachment) continue;
+
+                    // Convert attachment to processed mesh data
+                    const processed = model.convertAttachmentToProcessedMesh(attachment);
+                    if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
+                        continue;
+                    }
+
+                    // Build Three.js geometry for this attachment
+                    const idxCount = processed.indices.size();
+                    const positions = new Float32Array(idxCount * 3);
+                    const normals = new Float32Array(idxCount * 3);
+                    const uvs = new Float32Array(idxCount * 2);
+
+                    for (let i = 0; i < idxCount; i++) {
+                        const vertIdx = processed.indices.get(i);
+                        const vertBase = vertIdx * 8;
+
+                        positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
+                        positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
+                        positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
+
+                        normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
+                        normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
+                        normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
+
+                        uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
+                        uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
+                    }
+
+                    const geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+                    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+                    // Build material groups
+                    const triCount = processed.materialIds.size();
+                    geometry.clearGroups();
+
+                    let currentMatId = processed.materialIds.get(0);
+                    let groupStart = 0;
+
+                    for (let t = 1; t <= triCount; t++) {
+                        const matId = (t < triCount) ? processed.materialIds.get(t) : -1;
+
+                        if (t === triCount || matId !== currentMatId) {
+                            const vertexStart = groupStart * 3;
+                            const vertexCount = (t - groupStart) * 3;
+                            geometry.addGroup(vertexStart, vertexCount, currentMatId);
+
+                            groupStart = t;
+                            currentMatId = matId;
+                        }
+                    }
+
+                    // Build materials
+                    const matCount = processed.materials.size();
+                    const materialArray = [];
+                    for (let mi = 0; mi < matCount; mi++) {
+                        const mat = processed.materials.get(mi);
+                        const material = await getMaterialCached(mat);
+                        materialArray.push(material);
+                    }
+
+                    // Create mesh for this attachment
+                    const attachmentMesh = new THREE.Mesh(geometry, materialArray);
+                    modelGroup.add(attachmentMesh);
+                }
+
+                // Apply VOB transform
+                applyVobTransform(modelGroup, vob);
+
+                scene.add(modelGroup);
+
+                // Register loaded VOB if we have an ID
+                if (vobId) {
+                    loadedVOBs.set(vobId, modelGroup);
+                }
+
+                return true; // Successfully rendered
+
+            } catch (error) {
+                console.warn(`Failed to render model VOB ${vob.visual.name}:`, error);
+                return false;
+            }
+        }
+
+        // Helper function to apply VOB transform to an object
+        function applyVobTransform(object, vob) {
+            // Apply VOB transform using OpenGothic's approach
+            const rotArray = vob.rotation.toArray();
+            const m = [];
+            for (let i = 0; i < rotArray.size(); i++) {
+                m.push(rotArray.get(i));
+            }
+
+            // Build transform matrix exactly like OpenGothic does
+            const transformMat = new THREE.Matrix4();
+            transformMat.set(
+                -m[0], -m[3], -m[6], -vob.position.x,  // Negate X components for mirroring
+                 m[1],  m[4],  m[7],  vob.position.y,
+                 m[2],  m[5],  m[8],  vob.position.z,
+                0, 0, 0, 1
+            );
+
+            // Decompose matrix into position, quaternion, scale for Three.js
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const scale = new THREE.Vector3();
+            transformMat.decompose(pos, quat, scale);
+
+            object.position.copy(pos);
+            object.quaternion.copy(quat);
+            object.scale.copy(scale);
         }
 
         function getMeshPath(visualName) {
@@ -759,7 +960,21 @@
             // For now, return the first possibility (we'll check existence in fetch)
             return possiblePaths[0];
         }
-        
+
+        function getModelPath(visualName) {
+            if (!visualName || typeof visualName !== 'string') return null;
+
+            const upper = visualName.toUpperCase();
+
+            // Remove extension if present and get base name
+            const base = upper.replace(/\.(MDL|3DS|MMS|ASC|TGA)$/i, '');
+
+            // Interactive models are stored in ANIMS/_COMPILED folder as .MDL files
+            const modelPath = `/public/game-assets/ANIMS/_COMPILED/${base}.MDL`;
+
+            return modelPath;
+        }
+
         function onWindowResize() {
             const canvas = document.getElementById('threejs-canvas');
             camera.aspect = canvas.clientWidth / canvas.clientHeight;

@@ -131,4 +131,20 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
     // Factory function
     function("createReadArchive", &create_read_archive, allow_raw_pointers());
     function("createReadArchiveFromArray", &create_read_archive_from_js_array, allow_raw_pointers());
+
+    // Model class for loading .MDL files
+    class_<ModelWrapper>("Model")
+        .function("load", &ModelWrapper::load)
+        .function("loadFromArray", &ModelWrapper::loadFromArray)
+        .function("getLastError", &ModelWrapper::getLastError)
+        .property("isLoaded", &ModelWrapper::isLoaded)
+        .function("getSoftSkinMeshes", &ModelWrapper::getSoftSkinMeshes)
+        .function("getAttachmentNames", &ModelWrapper::getAttachmentNames)
+        .function("getAttachment", &ModelWrapper::getAttachment, allow_raw_pointers())
+        .function("convertAttachmentToProcessedMesh", &ModelWrapper::convertAttachmentToProcessedMesh, allow_raw_pointers());
+
+    // Factory function for models
+    function("createModel", select_overload<std::unique_ptr<ModelWrapper>()>([]() {
+        return std::make_unique<ModelWrapper>();
+    }));
 }

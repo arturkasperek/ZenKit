@@ -144,7 +144,7 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
     // Bind geometric structures
     value_object<Vector3>("Vector3")
         .field("x", &Vector3::x)
-        .field("y", &Vector3::y)  
+        .field("y", &Vector3::y)
         .field("z", &Vector3::z);
 
     value_object<Vector2>("Vector2")
@@ -165,6 +165,25 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("center", &OrientedBoundingBoxData::center)
         .field("axes", &OrientedBoundingBoxData::axes)
         .field("half_width", &OrientedBoundingBoxData::half_width);
+
+    // Model mesh structures
+    value_object<zenkit::SubMesh>("SubMesh")
+        .field("mat", &zenkit::SubMesh::mat)
+        .field("triangles", &zenkit::SubMesh::triangles)
+        .field("wedges", &zenkit::SubMesh::wedges)
+        .field("colors", &zenkit::SubMesh::colors)
+        .field("trianglePlaneIndices", &zenkit::SubMesh::triangle_plane_indices)
+        .field("trianglePlanes", &zenkit::SubMesh::triangle_planes)
+        .field("wedgeMap", &zenkit::SubMesh::wedge_map);
+
+    value_object<zenkit::SoftSkinWedgeNormal>("SoftSkinWedgeNormal")
+        .field("normal", &zenkit::SoftSkinWedgeNormal::normal)
+        .field("index", &zenkit::SoftSkinWedgeNormal::index);
+
+    value_object<zenkit::SoftSkinWeightEntry>("SoftSkinWeightEntry")
+        .field("weight", &zenkit::SoftSkinWeightEntry::weight)
+        .field("position", &zenkit::SoftSkinWeightEntry::position)
+        .field("nodeIndex", &zenkit::SoftSkinWeightEntry::node_index);
 
     // Matrix3x3Data is registered in zenkit_wasm.cc
 
@@ -200,6 +219,24 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
     register_vector<float>("VectorFloat");
     register_vector<MaterialData>("VectorMaterialData");
     register_vector<VobData>("VectorVobData");
+
+    // Model mesh vector types
+    register_vector<zenkit::SubMesh>("VectorSubMesh");
+    register_vector<zenkit::SoftSkinMesh>("VectorSoftSkinMesh");
+    register_vector<zenkit::SoftSkinWedgeNormal>("VectorSoftSkinWedgeNormal");
+    register_vector<zenkit::SoftSkinWeightEntry>("VectorSoftSkinWeightEntry");
+    register_vector<zenkit::OrientedBoundingBox>("VectorOrientedBoundingBox");
+    register_vector<int32_t>("VectorInt32");
+    register_vector<std::string>("VectorString");
+
+    // Register MultiResolutionMesh as a value type first
+    value_object<zenkit::MultiResolutionMesh>("MultiResolutionMeshValue")
+        .field("positions", &zenkit::MultiResolutionMesh::positions)
+        .field("normals", &zenkit::MultiResolutionMesh::normals)
+        .field("subMeshes", &zenkit::MultiResolutionMesh::sub_meshes)
+        .field("materials", &zenkit::MultiResolutionMesh::materials)
+        .field("bbox", &zenkit::MultiResolutionMesh::bbox)
+        .field("obbox", &zenkit::MultiResolutionMesh::obbox);
 
     // MeshData - expose actual data as properties with improved safety
     class_<MeshWrapper>("MeshData")
@@ -257,6 +294,23 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .function("loadMRMFromArray", &StandaloneMeshWrapper::loadMRMFromArray)
         .function("getMeshData", &StandaloneMeshWrapper::getMeshData, allow_raw_pointers())
         .function("isMRM", &StandaloneMeshWrapper::isMRM);
+
+    // MultiResolutionMesh wrapper for model attachments
+    class_<zenkit::MultiResolutionMesh>("MultiResolutionMesh")
+        .property("positions", &zenkit::MultiResolutionMesh::positions)
+        .property("normals", &zenkit::MultiResolutionMesh::normals)
+        .property("subMeshes", &zenkit::MultiResolutionMesh::sub_meshes)
+        .property("materials", &zenkit::MultiResolutionMesh::materials)
+        .property("bbox", &zenkit::MultiResolutionMesh::bbox)
+        .property("obbox", &zenkit::MultiResolutionMesh::obbox);
+
+    // SoftSkinMesh wrapper for animated models
+    class_<zenkit::SoftSkinMesh>("SoftSkinMesh")
+        .property("mesh", &zenkit::SoftSkinMesh::mesh)
+        .property("bboxes", &zenkit::SoftSkinMesh::bboxes)
+        .property("wedgeNormals", &zenkit::SoftSkinMesh::wedge_normals)
+        .property("weights", &zenkit::SoftSkinMesh::weights)
+        .property("nodes", &zenkit::SoftSkinMesh::nodes);
 
     // Factory functions
     function("createWorld", &createWorld);
