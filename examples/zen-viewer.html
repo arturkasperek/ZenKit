@@ -469,8 +469,7 @@
                     const mesh = loadedVOBs.get(id);
                     if (mesh) {
                         scene.remove(mesh);
-                        mesh.geometry.dispose();
-                        // Note: materials are cached and shared, don't dispose them
+                        disposeObject3D(mesh);
                         loadedVOBs.delete(id);
                     }
                 }
@@ -895,7 +894,7 @@
                     modelGroup.add(attachmentMesh);
                 }
 
-                // Apply VOB transform
+                // Apply VOB transform using the same approach as regular VOBs
                 applyVobTransform(modelGroup, vob);
 
                 scene.add(modelGroup);
@@ -940,6 +939,26 @@
             object.position.copy(pos);
             object.quaternion.copy(quat);
             object.scale.copy(scale);
+        }
+
+
+        // Helper function to properly dispose of Three.js objects (Meshes and Groups)
+        function disposeObject3D(object) {
+            if (!object) return;
+
+            // If it's a Mesh, dispose its geometry
+            if (object.geometry) {
+                object.geometry.dispose();
+            }
+
+            // If it's a Group or has children, recursively dispose children
+            if (object.children && object.children.length > 0) {
+                for (const child of object.children) {
+                    disposeObject3D(child);
+                }
+            }
+
+            // Note: materials are cached and shared, don't dispose them
         }
 
         function getMeshPath(visualName) {
