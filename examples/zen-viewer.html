@@ -36,6 +36,23 @@
         .render-info {
             display: none;
         }
+
+        .controls-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-family: monospace;
+            pointer-events: none;
+        }
+
+        canvas:focus {
+            outline: none;
+        }
     </style>
 </head>
 <body>
@@ -51,10 +68,14 @@
                 <div>Draw Calls: <span id="drawCalls">0</span></div>
             </div>
 
-            <!-- Control buttons -->
-            <div class="control-buttons" id="controlButtons" style="position: absolute; top: 10px; left: 10px; display: none;">
-                <button id="teleportToChestBtn" style="padding: 8px 16px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">📦 Go to Chest</button>
+            <div class="controls-info">
+                <div><strong>Camera Controls:</strong></div>
+                <div>Mouse: Click & drag to look around</div>
+                <div>WASD / Arrows: Move</div>
+                <div>Q/Space: Up | Z/Shift: Down</div>
+                <div>Mouse wheel: Speed</div>
             </div>
+
         </div>
     </div>
 
@@ -80,8 +101,13 @@
         const VOB_LOAD_DISTANCE = 5000; // Load VOBs within this distance
         const VOB_UNLOAD_DISTANCE = 6000; // Unload VOBs beyond this distance
 
-        // Orbital controls variables (made global for teleport function)
-        let targetX = 0, targetY = 0, distance = 2000;
+        // Camera control variables
+        let moveSpeed = 50;
+        let mouseSensitivity = 0.002;
+        let pitch = 0, yaw = 0;
+        let velocity = new THREE.Vector3();
+        let isMouseDown = false;
+        let lastMouseX = 0, lastMouseY = 0;
 
         // Initialize Three.js Scene
         function initThreeJS() {
@@ -93,8 +119,8 @@
             
             // Camera with optimized near/far planes to reduce z-fighting
             camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1.0, 100000);
-            camera.position.set(-30020.2, 5591.6, -15721.8); // Start at requested position
-            camera.lookAt(0, 0, 0); // Make camera look at origin
+            camera.position.set(0, 0, 0); // Start at origin for easy exploration
+            camera.lookAt(-1, 0, 0); // Look along positive X axis
             
             // Renderer with enhanced depth buffer settings - match reference viewer
             renderer = new THREE.WebGLRenderer({ 
@@ -119,60 +145,109 @@
         }
         
         function setupControls() {
-            let isMouseDown = false;
-            let mouseX = 0, mouseY = 0;
-            
-            // Calculate initial angles from camera position
-            const initialPos = camera.position;
-            distance = Math.sqrt(initialPos.x * initialPos.x + initialPos.y * initialPos.y + initialPos.z * initialPos.z);
-            targetY = Math.asin(initialPos.y / distance);
-            targetX = Math.atan2(initialPos.z, initialPos.x);
-            
-            // Camera initialized successfully
-            
             const canvas = renderer.domElement;
-            
+            const keys = {};
+
+            // Initialize camera orientation from current position
+            const initialDirection = new THREE.Vector3(0, 0, -1);
+            initialDirection.applyQuaternion(camera.quaternion);
+            yaw = Math.atan2(initialDirection.x, initialDirection.z);
+            pitch = Math.asin(initialDirection.y);
+
+            // Mouse controls for camera rotation
             canvas.addEventListener('mousedown', (event) => {
                 isMouseDown = true;
-                mouseX = event.clientX;
-                mouseY = event.clientY;
+                lastMouseX = event.clientX;
+                lastMouseY = event.clientY;
+                canvas.requestPointerLock();
             });
-            
-            canvas.addEventListener('mousemove', (event) => {
-                if (!isMouseDown) return;
-                
-                const deltaX = event.clientX - mouseX;
-                const deltaY = event.clientY - mouseY;
-                
-                targetX += deltaX * 0.01;
-                targetY += deltaY * 0.01;
-                targetY = Math.max(-Math.PI/2, Math.min(Math.PI/2, targetY));
-                
-                mouseX = event.clientX;
-                mouseY = event.clientY;
-                
-                updateCameraPosition();
+
+            document.addEventListener('mousemove', (event) => {
+                if (!isMouseDown || document.pointerLockElement !== canvas) return;
+
+                const deltaX = event.movementX || 0;
+                const deltaY = event.movementY || 0;
+
+                yaw -= deltaX * mouseSensitivity;
+                pitch -= deltaY * mouseSensitivity;
+                pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+
+                updateCameraOrientation();
             });
-            
+
             canvas.addEventListener('mouseup', () => {
                 isMouseDown = false;
+                document.exitPointerLock();
             });
-            
+
+            // Keyboard controls for movement
+            document.addEventListener('keydown', (event) => {
+                keys[event.code] = true;
+            });
+
+            document.addEventListener('keyup', (event) => {
+                keys[event.code] = false;
+            });
+
+            // Mouse wheel for movement speed
             canvas.addEventListener('wheel', (event) => {
-                distance += event.deltaY * 2;
-                distance = Math.max(100, Math.min(50000, distance));
-                updateCameraPosition();
+                moveSpeed += event.deltaY * 0.1;
+                moveSpeed = Math.max(1, Math.min(500, moveSpeed));
                 event.preventDefault();
             });
-            
-            function updateCameraPosition() {
-                camera.position.x = Math.cos(targetX) * Math.cos(targetY) * distance;
-                camera.position.y = Math.sin(targetY) * distance;
-                camera.position.z = Math.sin(targetX) * Math.cos(targetY) * distance;
-                camera.lookAt(0, 0, 0);
-                renderer.render(scene, camera);
+
+            function updateCameraOrientation() {
+                // Create quaternion from pitch and yaw
+                const quaternion = new THREE.Quaternion();
+                quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+                camera.quaternion.copy(quaternion);
             }
-            
+
+            function updateMovement() {
+                velocity.set(0, 0, 0);
+
+                // Movement directions relative to camera
+                const forward = new THREE.Vector3(0, 0, -1);
+                const right = new THREE.Vector3(1, 0, 0);
+                const up = new THREE.Vector3(0, 1, 0);
+
+                forward.applyQuaternion(camera.quaternion);
+                right.applyQuaternion(camera.quaternion);
+
+                // WASD or Arrow keys
+                if (keys['KeyW'] || keys['ArrowUp']) {
+                    velocity.add(forward);
+                }
+                if (keys['KeyS'] || keys['ArrowDown']) {
+                    velocity.sub(forward);
+                }
+                if (keys['KeyA'] || keys['ArrowLeft']) {
+                    velocity.sub(right);
+                }
+                if (keys['KeyD'] || keys['ArrowRight']) {
+                    velocity.add(right);
+                }
+                if (keys['KeyQ'] || keys['Space']) {
+                    velocity.add(up);
+                }
+                if (keys['KeyZ'] || keys['ShiftLeft']) {
+                    velocity.sub(up);
+                }
+
+                // Normalize and apply speed
+                if (velocity.length() > 0) {
+                    velocity.normalize().multiplyScalar(moveSpeed);
+                    camera.position.add(velocity);
+                }
+            }
+
+            // Animation loop for smooth movement
+            function animate() {
+                updateMovement();
+                renderer.render(scene, camera);
+                requestAnimationFrame(animate);
+            }
+            animate();
         }
 
         async function initZenKit() {
@@ -214,79 +289,6 @@
             }
         }
 
-        // Add TEST_CHEST VOB manually for debugging
-        function addTestChestVob(world) {
-            try {
-                console.log('🔧 Available ZenKit functions:', Object.keys(ZenKit).filter(k => k.includes('Vob') || k.includes('Virtual') || k.includes('create')));
-
-                // Try to create TEST_CHEST VOB - let's check what functions are available
-                // For now, let's just log that we're trying to add it and see what happens
-                console.log('🔧 Attempting to add TEST_CHEST VOB...');
-
-                // Since createVirtualObject doesn't exist, let's try a different approach
-                // We'll manually create a VOB-like object and add it to our VOB processing
-                const testChestVob = {
-                    id: 99999,
-                    type: 22, // ITEM type (interactive VOB)
-                    vob_name: 'TEST_CHEST',
-                    position: { x: 0, y: 100, z: 0 },
-                    // Create a rotation object that matches the expected interface
-                    rotation: {
-                        get: function(indexOrRow, col) {
-                            const matrix = [
-                                [1, 0, 0],  // row 0
-                                [0, 1, 0],  // row 1
-                                [0, 0, 1]   // row 2
-                            ];
-
-                            // Handle both calling patterns: get(index) and get(row, col)
-                            if (col === undefined) {
-                                // Single index access (0-8)
-                                const row = Math.floor(indexOrRow / 3);
-                                const col = indexOrRow % 3;
-                                return matrix[row][col];
-                            } else {
-                                // Row/column access
-                                return matrix[indexOrRow][col];
-                            }
-                        },
-                        toArray: function() {
-                            // Return an object that mimics Emscripten vector interface
-                            const arr = [1, 0, 0, 0, 1, 0, 0, 0, 1];
-                            return {
-                                size: function() { return arr.length; },
-                                get: function(index) { return arr[index]; }
-                            };
-                        }
-                    },
-                    showVisual: true,
-                    cd_dynamic: false,
-                    visual: {
-                        type: 5, // MODEL
-                        name: 'CHESTBIG_NW_NORMAL_LOCKED.MDS'
-                    },
-                    children: {
-                        size: function() { return 0; } // Empty children array
-                    }
-                };
-
-                // Instead of adding to world, let's add it to our VOB processing directly
-                // We'll inject it into the VOB collection process
-                injectTestChestVob(testChestVob);
-
-                console.log('✅ Prepared TEST_CHEST VOB for processing at (0, 100, 0)');
-
-            } catch (error) {
-                console.error('❌ Failed to prepare TEST_CHEST VOB:', error);
-            }
-        }
-
-        // Global variable to hold our test chest VOB
-        let testChestVobData = null;
-
-        function injectTestChestVob(vobData) {
-            testChestVobData = vobData;
-        }
 
         async function processZenFile(uint8Array, fileSize) {
             try {
@@ -305,16 +307,10 @@
                 // Create 3D mesh
                 createThreeJSMesh(mesh);
 
-                // Add our TEST_CHEST VOB manually for debugging
-                addTestChestVob(world);
-
                 // Load and render VOBs
                 loadVOBs(world);
 
                 updateStatus(`✅ World file loaded successfully!`, 'success');
-
-                // Show control buttons now that world is loaded
-                document.getElementById('controlButtons').style.display = 'block';
 
             } catch (error) {
                 updateStatus(`❌ Failed to load world file: ${error.message}`, 'error');
@@ -474,51 +470,16 @@
                     const typeKey = `Type_${vob.visual.type}`;
                     visualTypeCounts[typeKey] = (visualTypeCounts[typeKey] || 0) + 1;
                     
-                    // Special logging for TEST_CHEST and MODEL type VOBs
-                    if (vob.vob_name === 'TEST_CHEST') {
-                        console.log('🎯 Found TEST_CHEST VOB:', {
-                            id: vobId,
-                            name: vob.vob_name,
-                            type: vob.type,
-                            position: [vob.position.x, vob.position.y, vob.position.z],
-                            visual: vob.visual ? {
-                                type: vob.visual.type,
-                                name: vob.visual.name
-                            } : null,
-                            showVisual: vob.showVisual
-                        });
-                    }
-
-                    // Log all MODEL type VOBs for debugging
-                    if (vob.visual && vob.visual.type === 5) {
-                        console.log('📦 Found MODEL VOB:', {
-                            id: vobId,
-                            name: vob.vob_name,
-                            visualName: vob.visual.name,
-                            position: [vob.position.x, vob.position.y, vob.position.z],
-                            showVisual: vob.showVisual
-                        });
-                    }
-                    
                     // Only store VOBs that have visible meshes
-                    if (vob.showVisual && vob.visual.name && 
+                    if (vob.showVisual && vob.visual.name &&
                         (vob.visual.type === 1 || vob.visual.type === 2 || vob.visual.type === 5 || vob.visual.type === 6) &&
-                        !vob.visual.name.toUpperCase().endsWith('.TEX') && 
+                        !vob.visual.name.toUpperCase().endsWith('.TEX') &&
                         !vob.visual.name.toUpperCase().endsWith('.TGA')) {
 
-                        // Special positioning for TEST_CHEST
-                        let vobPosition;
-                        if (vob.vob_name === 'TEST_CHEST') {
-                            vobPosition = new THREE.Vector3(0, 100, 0); // Override position to Y=100
-                            console.log('🎯 Positioning TEST_CHEST at (0, 100, 0)');
-                        } else {
-                            vobPosition = new THREE.Vector3(-vob.position.x, vob.position.y, vob.position.z);
-                        }
-                        
                         allVOBs.push({
                             id: `${vobId}_${totalCount}`,
                             vob: vob,
-                            position: vobPosition,
+                            position: new THREE.Vector3(-vob.position.x, vob.position.y, vob.position.z),
                             visualName: vob.visual.name
                         });
                     }
@@ -536,20 +497,8 @@
                     collectVobTree(vob, i);
                 }
 
-                // Add our injected test chest VOB if it exists
-                if (testChestVobData) {
-                    console.log('🎯 Injecting TEST_CHEST VOB into collection');
-                    // Add it as a renderable VOB
-                    allVOBs.push({
-                        id: `test_chest_${Date.now()}`,
-                        vob: testChestVobData,
-                        position: new THREE.Vector3(0, 100, 0), // Force position to (0, 100, 0)
-                        visualName: testChestVobData.visual.name
-                    });
-                }
-
-                console.log(`📊 Total VOBs (including children): ${totalCount}${testChestVobData ? ' + 1 injected' : ''}`);
-                console.log(`📊 Renderable VOBs: ${allVOBs.length}${testChestVobData ? ' (includes injected TEST_CHEST)' : ''}`);
+                console.log(`📊 Total VOBs (including children): ${totalCount}`);
+                console.log(`📊 Renderable VOBs: ${allVOBs.length}`);
                 
                 const typeNames = ['DECAL', 'MESH', 'MULTI_RES_MESH', 'PARTICLE', 'CAMERA', 'MODEL', 'MORPH_MESH', 'UNKNOWN'];
                 console.log('📊 Visual type breakdown:');
@@ -558,11 +507,6 @@
                     const typeName = typeNames[typeNum] || 'UNKNOWN';
                     console.log(`   ${typeName} (${typeNum}): ${visualTypeCounts[key]}`);
                 });
-
-                // Add our injected chest to the statistics
-                if (testChestVobData) {
-                    console.log('   MODEL (5): +1 (injected TEST_CHEST)');
-                }
                 
                 // Start the streaming loader
                 console.log('🎬 Starting streaming VOB loader...');
@@ -625,15 +569,8 @@
                 isLoadingVOB = true;
                 const vobData = vobLoadQueue.shift();
 
-                if (vobData.vob.vob_name === 'TEST_CHEST') {
-                    console.log('🎯 Processing TEST_CHEST VOB for rendering');
-                }
-
                 await renderVOB(vobData.vob, vobData.id);
                 isLoadingVOB = false;
-                
-                // Re-render scene to show the new VOB
-                renderer.render(scene, camera);
             }
             
             // Update debug info
@@ -807,9 +744,6 @@
                     // Handle different visual types
             if (vob.visual.type === 5 || vob.visual.type === 6) {
                 // MODEL (5) or MORPH_MESH (6) - load .MDL file
-                if (vob.vob_name === 'TEST_CHEST') {
-                    console.log('🎨 Starting to render TEST_CHEST model');
-                }
                 return await renderModelVOB(vob, vobId);
             } else {
                 // MESH (1) or MULTI_RES_MESH (2) - load mesh file
@@ -923,21 +857,6 @@
             try {
                 const visualName = vob.visual.name;
 
-                // Special logging for TEST_CHEST rendering
-                if (vob.vob_name === 'TEST_CHEST') {
-                    console.log('🎨 Rendering TEST_CHEST model:', {
-                        id: vobId,
-                        name: vob.vob_name,
-                        visualName: visualName,
-                        position: [vob.position.x, vob.position.y, vob.position.z],
-                        rotation: [
-                            [vob.rotation.get(0), vob.rotation.get(1), vob.rotation.get(2)],
-                            [vob.rotation.get(3), vob.rotation.get(4), vob.rotation.get(5)],
-                            [vob.rotation.get(6), vob.rotation.get(7), vob.rotation.get(8)]
-                        ]
-                    });
-                }
-
                 // Build model path - convert to .MDL file
                 const modelPath = getModelPath(visualName);
                 if (!modelPath) {
@@ -948,15 +867,6 @@
                 const model = await loadModelCached(modelPath);
                 if (!model) {
                     return false;
-                }
-
-                // Special logging for TEST_CHEST model loading
-                if (vob.vob_name === 'TEST_CHEST') {
-                    console.log('📦 TEST_CHEST model loaded:', {
-                        modelPath: modelPath,
-                        isLoaded: model.isLoaded,
-                        hasAttachments: model.getAttachmentNames().size() > 0
-                    });
                 }
 
                 // For now, render all attachments as a group
@@ -1036,19 +946,7 @@
                     if (hierarchyNodeIndex >= 0) {
                         const accumulatedMatrix = getAccumulatedTransform(hierarchyNodeIndex);
 
-                        // Log hierarchy transform details for chest models
-                        if (visualName.includes('CHEST')) {
-                            console.log(`🔧 Chest attachment "${attachmentName}" (node ${hierarchyNodeIndex}):`);
-                            console.log(`   Before transform: pos(${attachmentMesh.position.x.toFixed(2)}, ${attachmentMesh.position.y.toFixed(2)}, ${attachmentMesh.position.z.toFixed(2)})`);
-                            console.log(`   Applying transform matrix:`, accumulatedMatrix.elements);
-                        }
-
                         attachmentMesh.applyMatrix4(accumulatedMatrix);
-
-                        // Log after transform for chest models
-                        if (visualName.includes('CHEST')) {
-                            console.log(`   After transform: pos(${attachmentMesh.position.x.toFixed(2)}, ${attachmentMesh.position.y.toFixed(2)}, ${attachmentMesh.position.z.toFixed(2)})`);
-                        }
                     } else {
                         console.warn(`No hierarchy node found for attachment: ${attachmentName}`);
                     }
@@ -1057,32 +955,7 @@
                 }
 
                 // Apply VOB transform using the same approach as regular VOBs
-                // For chest models, log the transform details
-                if (visualName.includes('CHEST')) {
-                    console.log(`🔄 Before VOB transform - chest parts positions:`);
-                    for (let i = 0; i < modelGroup.children.length; i++) {
-                        const child = modelGroup.children[i];
-                        console.log(`   Part ${i}: (${child.position.x.toFixed(2)}, ${child.position.y.toFixed(2)}, ${child.position.z.toFixed(2)})`);
-                    }
-                }
-
                 applyVobTransform(modelGroup, vob);
-
-                // For chest models, log after VOB transform
-                if (visualName.includes('CHEST')) {
-                    console.log(`✅ After VOB transform - chest parts positions:`);
-                    for (let i = 0; i < modelGroup.children.length; i++) {
-                        const child = modelGroup.children[i];
-                        console.log(`   Part ${i}: (${child.position.x.toFixed(2)}, ${child.position.y.toFixed(2)}, ${child.position.z.toFixed(2)})`);
-                    }
-                    console.log(`   Chest group transform: pos(${modelGroup.position.x.toFixed(2)}, ${modelGroup.position.y.toFixed(2)}, ${modelGroup.position.z.toFixed(2)}) rot(${modelGroup.quaternion.x.toFixed(3)}, ${modelGroup.quaternion.y.toFixed(3)}, ${modelGroup.quaternion.z.toFixed(3)}, ${modelGroup.quaternion.w.toFixed(3)})`);
-                }
-
-                // Debug: check final positions of attachments in the model
-                // Log final positions for chest models to verify correct rendering
-                if (visualName.includes('CHEST')) {
-                    console.log(`✅ Chest "${visualName}" rendered at (${modelGroup.position.x.toFixed(2)}, ${modelGroup.position.y.toFixed(2)}, ${modelGroup.position.z.toFixed(2)}) with ${modelGroup.children.length} parts`);
-                }
 
                 scene.add(modelGroup);
 
@@ -1108,17 +981,6 @@
                     m.push(rotArray.get(i));
                 }
                 
-            // Special logging for TEST_CHEST transform
-            if (vob.vob_name === 'TEST_CHEST') {
-                console.log('🔄 Applying TEST_CHEST transform:', {
-                    rawPosition: [vob.position.x, vob.position.y, vob.position.z],
-                    rawRotation: [
-                        [m[0], m[1], m[2]],
-                        [m[3], m[4], m[5]],
-                        [m[6], m[7], m[8]]
-                    ]
-                });
-            }
 
             // Build transform matrix exactly like OpenGothic does
                 const transformMat = new THREE.Matrix4();
@@ -1135,28 +997,10 @@
                 const scale = new THREE.Vector3();
                 transformMat.decompose(pos, quat, scale);
                 
-            // Quick fix: Rotate interactive VOBs by 180 degrees around Y axis
-            // TEMPORARILY DISABLED to test if Y rotation is causing positioning issues
-            if (vob.type === 22 && false) { // Interactive VOBs (chests, items, etc.)
-                console.log(`🔄 Applying 180° Y rotation to interactive VOB ${vob.vob_name} (type ${vob.type})`);
-                const yRotation = new THREE.Quaternion();
-                yRotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); // 180 degrees
-                quat.multiply(yRotation);
-                console.log(`✅ Y rotation applied, new quaternion: [${quat.x.toFixed(3)}, ${quat.y.toFixed(3)}, ${quat.z.toFixed(3)}, ${quat.w.toFixed(3)}]`);
-            }
 
             object.position.copy(pos);
             object.quaternion.copy(quat);
             object.scale.copy(scale);
-
-            // Special logging for TEST_CHEST final transform
-            if (vob.vob_name === 'TEST_CHEST') {
-                console.log('✅ TEST_CHEST final transform applied:', {
-                    threeJsPosition: [pos.x, pos.y, pos.z],
-                    threeJsRotation: [quat.x, quat.y, quat.z, quat.w],
-                    threeJsScale: [scale.x, scale.y, scale.z]
-                });
-            }
         }
 
 
@@ -1217,7 +1061,6 @@
             camera.aspect = canvas.clientWidth / canvas.clientHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-            renderer.render(scene, camera);
         }
         
         
@@ -1257,28 +1100,6 @@
 
         // Initialize on page load
         initZenKit();
-
-        // Set up control button event listeners
-        document.getElementById('teleportToChestBtn').addEventListener('click', () => {
-            teleportToChest();
-        });
-
-        // Teleport camera to chest position (0, 100, 0)
-        function teleportToChest() {
-            console.log('🎯 Teleporting to chest at position [0, 100, 0]');
-
-            // Position camera above the chest looking down
-            camera.position.set(0, 200, 0); // Above the chest
-            camera.lookAt(0, 100, 0); // Look at chest position
-
-            // Update orbital controls target
-            targetX = Math.atan2(camera.position.z, camera.position.x);
-            targetY = Math.asin(camera.position.y / distance);
-            distance = camera.position.length();
-
-            renderer.render(scene, camera);
-            console.log('✅ Teleported to chest position');
-        }
     </script>
 </body>
 </html>
