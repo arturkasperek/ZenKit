@@ -861,6 +861,13 @@
             const scale = new THREE.Vector3();
             transformMat.decompose(pos, quat, scale);
 
+            // Quick fix: Rotate interactive VOBs by 180 degrees around Y axis
+            if (vob.type === 22) { // ITEM type (interactive VOBs)
+                const yRotation = new THREE.Quaternion();
+                yRotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); // 180 degrees
+                quat.multiply(yRotation);
+            }
+
             object.position.copy(pos);
             object.quaternion.copy(quat);
             object.scale.copy(scale);
