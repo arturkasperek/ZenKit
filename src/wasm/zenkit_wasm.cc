@@ -104,6 +104,13 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
         .function("getIndex", &Matrix3x3Data::getIndex)
         .function("toArray", &Matrix3x3Data::toArray);
 
+    // Matrix 4x4 data structure
+    class_<Matrix4x4Data>("Matrix4x4Data")
+        .function("get", select_overload<float(size_t) const>(&Matrix4x4Data::get))
+        .function("get", select_overload<float(size_t, size_t) const>(&Matrix4x4Data::get))
+        .function("toArray", &Matrix4x4Data::toArray)
+        .function("size", &Matrix4x4Data::size);
+
     // Raw data result structure
     class_<RawDataResult>("RawDataResult")
         .property("data", &RawDataResult::data)
@@ -132,12 +139,27 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
     function("createReadArchive", &create_read_archive, allow_raw_pointers());
     function("createReadArchiveFromArray", &create_read_archive_from_js_array, allow_raw_pointers());
 
+    // ModelHierarchy classes
+    class_<zenkit::ModelHierarchy>("ModelHierarchy")
+        .property("nodes", &zenkit::ModelHierarchy::nodes);
+
+    class_<zenkit::ModelHierarchyNode>("ModelHierarchyNode")
+        .property("parentIndex", &zenkit::ModelHierarchyNode::parent_index)
+        .property("name", &zenkit::ModelHierarchyNode::name)
+        .function("getTransform", +[](const zenkit::ModelHierarchyNode& node) {
+            return Matrix4x4Data(node.transform);
+        });
+
+    // Register vector types
+    register_vector<zenkit::ModelHierarchyNode>("VectorModelHierarchyNode");
+
     // Model class for loading .MDL files
     class_<ModelWrapper>("Model")
         .function("load", &ModelWrapper::load)
         .function("loadFromArray", &ModelWrapper::loadFromArray)
         .function("getLastError", &ModelWrapper::getLastError)
         .property("isLoaded", &ModelWrapper::isLoaded)
+        .function("getHierarchy", &ModelWrapper::getHierarchy, allow_raw_pointers())
         .function("getSoftSkinMeshes", &ModelWrapper::getSoftSkinMeshes)
         .function("getAttachmentNames", &ModelWrapper::getAttachmentNames)
         .function("getAttachment", &ModelWrapper::getAttachment, allow_raw_pointers())

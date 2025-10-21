@@ -154,13 +154,57 @@ namespace zenkit::wasm {
         float get(int row, int col) const {
             return data[row * 3 + col];
         }
-        
+
         float getIndex(int index) const {
             return data[index];
         }
-        
+
         std::vector<float> toArray() const {
             return std::vector<float>(data, data + 9);
+        }
+    };
+
+    /// \brief Represents a 4x4 matrix for transformation data
+    struct Matrix4x4Data {
+        float data[16]; // 4x4 matrix stored as flat array in column-major order
+
+        Matrix4x4Data() = default;
+        Matrix4x4Data(const zenkit::Mat4& mat) {
+            for (int col = 0; col < 4; ++col) {
+                for (int row = 0; row < 4; ++row) {
+                    data[col * 4 + row] = mat[col][row];
+                }
+            }
+        }
+
+        // Method to get elements by index (column-major)
+        float get(size_t index) const {
+            if (index >= 16) {
+                return 0.0f;
+            }
+            return data[index];
+        }
+
+        // Method to get elements by row and column
+        float get(size_t row, size_t col) const {
+            if (row >= 4 || col >= 4) {
+                return 0.0f;
+            }
+            return data[col * 4 + row];
+        }
+
+        // Method to convert to a JavaScript array (column-major)
+        emscripten::val toArray() const {
+            emscripten::val js_array = emscripten::val::array();
+            for (int i = 0; i < 16; ++i) {
+                js_array.call<void>("push", data[i]);
+            }
+            return js_array;
+        }
+
+        // Method to get the size of the underlying array
+        size_t size() const {
+            return 16;
         }
     };
 

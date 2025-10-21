@@ -50,6 +50,11 @@
                 <div>Triangles: <span id="triangles">0</span></div>
                 <div>Draw Calls: <span id="drawCalls">0</span></div>
             </div>
+
+            <!-- Control buttons -->
+            <div class="control-buttons" id="controlButtons" style="position: absolute; top: 10px; left: 10px; display: none;">
+                <button id="teleportToChestBtn" style="padding: 8px 16px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">📦 Go to Chest</button>
+            </div>
         </div>
     </div>
 
@@ -74,6 +79,9 @@
         let lastCameraPosition = new THREE.Vector3();
         const VOB_LOAD_DISTANCE = 5000; // Load VOBs within this distance
         const VOB_UNLOAD_DISTANCE = 6000; // Unload VOBs beyond this distance
+
+        // Orbital controls variables (made global for teleport function)
+        let targetX = 0, targetY = 0, distance = 2000;
 
         // Initialize Three.js Scene
         function initThreeJS() {
@@ -114,11 +122,11 @@
             let isMouseDown = false;
             let mouseX = 0, mouseY = 0;
             
-            // Calculate initial angles from camera position (0, 1000, 2000)
+            // Calculate initial angles from camera position
             const initialPos = camera.position;
-            let distance = Math.sqrt(initialPos.x * initialPos.x + initialPos.y * initialPos.y + initialPos.z * initialPos.z);
-            let targetY = Math.asin(initialPos.y / distance);
-            let targetX = Math.atan2(initialPos.z, initialPos.x);
+            distance = Math.sqrt(initialPos.x * initialPos.x + initialPos.y * initialPos.y + initialPos.z * initialPos.z);
+            targetY = Math.asin(initialPos.y / distance);
+            targetX = Math.atan2(initialPos.z, initialPos.x);
             
             // Camera initialized successfully
             
@@ -176,7 +184,7 @@
                 // Initialize Three.js
                 initThreeJS();
                 
-                // Try to load TOTENINSEL.ZEN automatically
+                // Try to load TOTENINSEL.ZEN automatically (contains our TEST_CHEST)
                 tryLoadDefaultFile();
                 
             } catch (error) {
@@ -206,6 +214,80 @@
             }
         }
 
+        // Add TEST_CHEST VOB manually for debugging
+        function addTestChestVob(world) {
+            try {
+                console.log('🔧 Available ZenKit functions:', Object.keys(ZenKit).filter(k => k.includes('Vob') || k.includes('Virtual') || k.includes('create')));
+
+                // Try to create TEST_CHEST VOB - let's check what functions are available
+                // For now, let's just log that we're trying to add it and see what happens
+                console.log('🔧 Attempting to add TEST_CHEST VOB...');
+
+                // Since createVirtualObject doesn't exist, let's try a different approach
+                // We'll manually create a VOB-like object and add it to our VOB processing
+                const testChestVob = {
+                    id: 99999,
+                    type: 22, // ITEM type (interactive VOB)
+                    vob_name: 'TEST_CHEST',
+                    position: { x: 0, y: 100, z: 0 },
+                    // Create a rotation object that matches the expected interface
+                    rotation: {
+                        get: function(indexOrRow, col) {
+                            const matrix = [
+                                [1, 0, 0],  // row 0
+                                [0, 1, 0],  // row 1
+                                [0, 0, 1]   // row 2
+                            ];
+
+                            // Handle both calling patterns: get(index) and get(row, col)
+                            if (col === undefined) {
+                                // Single index access (0-8)
+                                const row = Math.floor(indexOrRow / 3);
+                                const col = indexOrRow % 3;
+                                return matrix[row][col];
+                            } else {
+                                // Row/column access
+                                return matrix[indexOrRow][col];
+                            }
+                        },
+                        toArray: function() {
+                            // Return an object that mimics Emscripten vector interface
+                            const arr = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+                            return {
+                                size: function() { return arr.length; },
+                                get: function(index) { return arr[index]; }
+                            };
+                        }
+                    },
+                    showVisual: true,
+                    cd_dynamic: false,
+                    visual: {
+                        type: 5, // MODEL
+                        name: 'CHESTBIG_NW_NORMAL_LOCKED.MDS'
+                    },
+                    children: {
+                        size: function() { return 0; } // Empty children array
+                    }
+                };
+
+                // Instead of adding to world, let's add it to our VOB processing directly
+                // We'll inject it into the VOB collection process
+                injectTestChestVob(testChestVob);
+
+                console.log('✅ Prepared TEST_CHEST VOB for processing at (0, 100, 0)');
+
+            } catch (error) {
+                console.error('❌ Failed to prepare TEST_CHEST VOB:', error);
+            }
+        }
+
+        // Global variable to hold our test chest VOB
+        let testChestVobData = null;
+
+        function injectTestChestVob(vobData) {
+            testChestVobData = vobData;
+        }
+
         async function processZenFile(uint8Array, fileSize) {
             try {
                 updateStatus(`📖 Loading world file...`, 'loading');
@@ -223,10 +305,16 @@
                 // Create 3D mesh
                 createThreeJSMesh(mesh);
 
+                // Add our TEST_CHEST VOB manually for debugging
+                addTestChestVob(world);
+
                 // Load and render VOBs
                 loadVOBs(world);
 
                 updateStatus(`✅ World file loaded successfully!`, 'success');
+
+                // Show control buttons now that world is loaded
+                document.getElementById('controlButtons').style.display = 'block';
 
             } catch (error) {
                 updateStatus(`❌ Failed to load world file: ${error.message}`, 'error');
@@ -386,16 +474,51 @@
                     const typeKey = `Type_${vob.visual.type}`;
                     visualTypeCounts[typeKey] = (visualTypeCounts[typeKey] || 0) + 1;
                     
+                    // Special logging for TEST_CHEST and MODEL type VOBs
+                    if (vob.vob_name === 'TEST_CHEST') {
+                        console.log('🎯 Found TEST_CHEST VOB:', {
+                            id: vobId,
+                            name: vob.vob_name,
+                            type: vob.type,
+                            position: [vob.position.x, vob.position.y, vob.position.z],
+                            visual: vob.visual ? {
+                                type: vob.visual.type,
+                                name: vob.visual.name
+                            } : null,
+                            showVisual: vob.showVisual
+                        });
+                    }
+
+                    // Log all MODEL type VOBs for debugging
+                    if (vob.visual && vob.visual.type === 5) {
+                        console.log('📦 Found MODEL VOB:', {
+                            id: vobId,
+                            name: vob.vob_name,
+                            visualName: vob.visual.name,
+                            position: [vob.position.x, vob.position.y, vob.position.z],
+                            showVisual: vob.showVisual
+                        });
+                    }
+                    
                     // Only store VOBs that have visible meshes
-                    if (vob.showVisual && vob.visual.name &&
+                    if (vob.showVisual && vob.visual.name && 
                         (vob.visual.type === 1 || vob.visual.type === 2 || vob.visual.type === 5 || vob.visual.type === 6) &&
-                        !vob.visual.name.toUpperCase().endsWith('.TEX') &&
+                        !vob.visual.name.toUpperCase().endsWith('.TEX') && 
                         !vob.visual.name.toUpperCase().endsWith('.TGA')) {
+
+                        // Special positioning for TEST_CHEST
+                        let vobPosition;
+                        if (vob.vob_name === 'TEST_CHEST') {
+                            vobPosition = new THREE.Vector3(0, 100, 0); // Override position to Y=100
+                            console.log('🎯 Positioning TEST_CHEST at (0, 100, 0)');
+                        } else {
+                            vobPosition = new THREE.Vector3(-vob.position.x, vob.position.y, vob.position.z);
+                        }
                         
                         allVOBs.push({
                             id: `${vobId}_${totalCount}`,
                             vob: vob,
-                            position: new THREE.Vector3(-vob.position.x, vob.position.y, vob.position.z),
+                            position: vobPosition,
                             visualName: vob.visual.name
                         });
                     }
@@ -413,8 +536,20 @@
                     collectVobTree(vob, i);
                 }
 
-                console.log(`📊 Total VOBs (including children): ${totalCount}`);
-                console.log(`📊 Renderable VOBs: ${allVOBs.length}`);
+                // Add our injected test chest VOB if it exists
+                if (testChestVobData) {
+                    console.log('🎯 Injecting TEST_CHEST VOB into collection');
+                    // Add it as a renderable VOB
+                    allVOBs.push({
+                        id: `test_chest_${Date.now()}`,
+                        vob: testChestVobData,
+                        position: new THREE.Vector3(0, 100, 0), // Force position to (0, 100, 0)
+                        visualName: testChestVobData.visual.name
+                    });
+                }
+
+                console.log(`📊 Total VOBs (including children): ${totalCount}${testChestVobData ? ' + 1 injected' : ''}`);
+                console.log(`📊 Renderable VOBs: ${allVOBs.length}${testChestVobData ? ' (includes injected TEST_CHEST)' : ''}`);
                 
                 const typeNames = ['DECAL', 'MESH', 'MULTI_RES_MESH', 'PARTICLE', 'CAMERA', 'MODEL', 'MORPH_MESH', 'UNKNOWN'];
                 console.log('📊 Visual type breakdown:');
@@ -423,6 +558,11 @@
                     const typeName = typeNames[typeNum] || 'UNKNOWN';
                     console.log(`   ${typeName} (${typeNum}): ${visualTypeCounts[key]}`);
                 });
+
+                // Add our injected chest to the statistics
+                if (testChestVobData) {
+                    console.log('   MODEL (5): +1 (injected TEST_CHEST)');
+                }
                 
                 // Start the streaming loader
                 console.log('🎬 Starting streaming VOB loader...');
@@ -484,6 +624,11 @@
             if (!isLoadingVOB && vobLoadQueue.length > 0) {
                 isLoadingVOB = true;
                 const vobData = vobLoadQueue.shift();
+
+                if (vobData.vob.vob_name === 'TEST_CHEST') {
+                    console.log('🎯 Processing TEST_CHEST VOB for rendering');
+                }
+
                 await renderVOB(vobData.vob, vobData.id);
                 isLoadingVOB = false;
                 
@@ -586,7 +731,7 @@
                 return null;
             }
         }
-
+        
         // Cached texture loader
         async function loadTextureCached(texturePath) {
             // Check cache first
@@ -659,16 +804,19 @@
                 return false;
             }
 
-            // Handle different visual types
+                    // Handle different visual types
             if (vob.visual.type === 5 || vob.visual.type === 6) {
                 // MODEL (5) or MORPH_MESH (6) - load .MDL file
+                if (vob.vob_name === 'TEST_CHEST') {
+                    console.log('🎨 Starting to render TEST_CHEST model');
+                }
                 return await renderModelVOB(vob, vobId);
             } else {
                 // MESH (1) or MULTI_RES_MESH (2) - load mesh file
-                const meshPath = getMeshPath(visualName);
-                if (!meshPath) {
-                    return false;
-                }
+            const meshPath = getMeshPath(visualName);
+            if (!meshPath) {
+                return false;
+            }
 
                 return await renderMeshVOB(vob, vobId, meshPath);
             }
@@ -676,63 +824,63 @@
 
         // Shared function to build Three.js geometry and materials from processed mesh data
         async function buildThreeJSGeometryAndMaterials(processed) {
-            const vertCount = processed.vertices.size();
-            const idxCount = processed.indices.size();
-            const matCount = processed.materials.size();
+                const vertCount = processed.vertices.size();
+                const idxCount = processed.indices.size();
+                const matCount = processed.materials.size();
 
-            // Build Three.js geometry
-            const positions = new Float32Array(idxCount * 3);
-            const normals = new Float32Array(idxCount * 3);
-            const uvs = new Float32Array(idxCount * 2);
+                // Build Three.js geometry
+                const positions = new Float32Array(idxCount * 3);
+                const normals = new Float32Array(idxCount * 3);
+                const uvs = new Float32Array(idxCount * 2);
 
-            for (let i = 0; i < idxCount; i++) {
-                const vertIdx = processed.indices.get(i);
-                const vertBase = vertIdx * 8;
-
-                positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
-                positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
-                positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
-
-                normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
-                normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
-                normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
-
-                uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
-                uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
-            }
-
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-            geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-
-            // Build material groups
-            const triCount = processed.materialIds.size();
-            geometry.clearGroups();
-
-            let currentMatId = processed.materialIds.get(0);
-            let groupStart = 0;
-
-            for (let t = 1; t <= triCount; t++) {
-                const matId = (t < triCount) ? processed.materialIds.get(t) : -1;
-
-                if (t === triCount || matId !== currentMatId) {
-                    const vertexStart = groupStart * 3;
-                    const vertexCount = (t - groupStart) * 3;
-                    geometry.addGroup(vertexStart, vertexCount, currentMatId);
-
-                    groupStart = t;
-                    currentMatId = matId;
+                for (let i = 0; i < idxCount; i++) {
+                    const vertIdx = processed.indices.get(i);
+                    const vertBase = vertIdx * 8;
+                    
+                    positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
+                    positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
+                    positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
+                    
+                    normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
+                    normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
+                    normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
+                    
+                    uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
+                    uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
                 }
-            }
 
-            // Build materials using cache
-            const materialArray = [];
-            for (let mi = 0; mi < matCount; mi++) {
-                const mat = processed.materials.get(mi);
-                const material = await getMaterialCached(mat);
-                materialArray.push(material);
-            }
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+                geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+                // Build material groups
+                const triCount = processed.materialIds.size();
+                geometry.clearGroups();
+                
+                let currentMatId = processed.materialIds.get(0);
+                let groupStart = 0;
+                
+                for (let t = 1; t <= triCount; t++) {
+                    const matId = (t < triCount) ? processed.materialIds.get(t) : -1;
+                    
+                    if (t === triCount || matId !== currentMatId) {
+                        const vertexStart = groupStart * 3;
+                        const vertexCount = (t - groupStart) * 3;
+                        geometry.addGroup(vertexStart, vertexCount, currentMatId);
+                        
+                        groupStart = t;
+                        currentMatId = matId;
+                    }
+                }
+
+                // Build materials using cache
+                const materialArray = [];
+                for (let mi = 0; mi < matCount; mi++) {
+                    const mat = processed.materials.get(mi);
+                    const material = await getMaterialCached(mat);
+                    materialArray.push(material);
+                }
 
             return { geometry, materials: materialArray };
         }
@@ -775,6 +923,21 @@
             try {
                 const visualName = vob.visual.name;
 
+                // Special logging for TEST_CHEST rendering
+                if (vob.vob_name === 'TEST_CHEST') {
+                    console.log('🎨 Rendering TEST_CHEST model:', {
+                        id: vobId,
+                        name: vob.vob_name,
+                        visualName: visualName,
+                        position: [vob.position.x, vob.position.y, vob.position.z],
+                        rotation: [
+                            [vob.rotation.get(0), vob.rotation.get(1), vob.rotation.get(2)],
+                            [vob.rotation.get(3), vob.rotation.get(4), vob.rotation.get(5)],
+                            [vob.rotation.get(6), vob.rotation.get(7), vob.rotation.get(8)]
+                        ]
+                    });
+                }
+
                 // Build model path - convert to .MDL file
                 const modelPath = getModelPath(visualName);
                 if (!modelPath) {
@@ -787,6 +950,15 @@
                     return false;
                 }
 
+                // Special logging for TEST_CHEST model loading
+                if (vob.vob_name === 'TEST_CHEST') {
+                    console.log('📦 TEST_CHEST model loaded:', {
+                        modelPath: modelPath,
+                        isLoaded: model.isLoaded,
+                        hasAttachments: model.getAttachmentNames().size() > 0
+                    });
+                }
+
                 // For now, render all attachments as a group
                 // In the future, we could render SoftSkinMesh for animated characters
                 const attachmentNames = model.getAttachmentNames();
@@ -796,14 +968,57 @@
                     return false;
                 }
 
+                // Get the model hierarchy to position attachments correctly
+                const hierarchy = model.getHierarchy();
+
                 // Create a group to hold all attachment meshes
                 const modelGroup = new THREE.Group();
 
-                // Render each attachment
+                // Helper function to accumulate transforms up the hierarchy chain
+                function getAccumulatedTransform(nodeIndex) {
+                    let currentIndex = nodeIndex;
+                    let accumulatedMatrix = new THREE.Matrix4();
+
+                    // Walk from leaf to root, accumulating transforms
+                    while (currentIndex >= 0) {
+                        const node = hierarchy.nodes.get ? hierarchy.nodes.get(currentIndex) : hierarchy.nodes[currentIndex];
+                        const nodeTransform = node.getTransform();
+                        const nodeMatrix = new THREE.Matrix4();
+
+                        // Convert column-major matrix data to Three.js Matrix4
+                        const matrixData = nodeTransform.toArray();
+                        for (let i = 0; i < 16; i++) {
+                            nodeMatrix.elements[i] = matrixData[i];
+                        }
+
+                        // Pre-multiply: accumulated = node * accumulated
+                        const tempMatrix = new THREE.Matrix4();
+                        tempMatrix.multiplyMatrices(nodeMatrix, accumulatedMatrix);
+                        accumulatedMatrix = tempMatrix;
+
+                        currentIndex = node.parentIndex;
+                    }
+
+                    return accumulatedMatrix;
+                }
+
+                // Render each attachment with proper positioning from hierarchy
                 for (let i = 0; i < attachmentNames.size(); i++) {
                     const attachmentName = attachmentNames.get(i);
                     const attachment = model.getAttachment(attachmentName);
                     if (!attachment) continue;
+
+                    // Find the corresponding hierarchy node for this attachment
+                    // The attachment name should match a hierarchy node name
+                    let hierarchyNodeIndex = -1;
+                    const nodeCount = hierarchy.nodes.size ? hierarchy.nodes.size() : hierarchy.nodes.length;
+                    for (let j = 0; j < nodeCount; j++) {
+                        const node = hierarchy.nodes.get ? hierarchy.nodes.get(j) : hierarchy.nodes[j];
+                        if (node && node.name === attachmentName) {
+                            hierarchyNodeIndex = j;
+                            break;
+                        }
+                    }
 
                     // Convert attachment to processed mesh data
                     const processed = model.convertAttachmentToProcessedMesh(attachment);
@@ -816,11 +1031,58 @@
 
                     // Create mesh for this attachment
                     const attachmentMesh = new THREE.Mesh(geometry, materials);
+
+                    // Apply accumulated hierarchy transform if found
+                    if (hierarchyNodeIndex >= 0) {
+                        const accumulatedMatrix = getAccumulatedTransform(hierarchyNodeIndex);
+
+                        // Log hierarchy transform details for chest models
+                        if (visualName.includes('CHEST')) {
+                            console.log(`🔧 Chest attachment "${attachmentName}" (node ${hierarchyNodeIndex}):`);
+                            console.log(`   Before transform: pos(${attachmentMesh.position.x.toFixed(2)}, ${attachmentMesh.position.y.toFixed(2)}, ${attachmentMesh.position.z.toFixed(2)})`);
+                            console.log(`   Applying transform matrix:`, accumulatedMatrix.elements);
+                        }
+
+                        attachmentMesh.applyMatrix4(accumulatedMatrix);
+
+                        // Log after transform for chest models
+                        if (visualName.includes('CHEST')) {
+                            console.log(`   After transform: pos(${attachmentMesh.position.x.toFixed(2)}, ${attachmentMesh.position.y.toFixed(2)}, ${attachmentMesh.position.z.toFixed(2)})`);
+                        }
+                    } else {
+                        console.warn(`No hierarchy node found for attachment: ${attachmentName}`);
+                    }
+
                     modelGroup.add(attachmentMesh);
                 }
 
                 // Apply VOB transform using the same approach as regular VOBs
+                // For chest models, log the transform details
+                if (visualName.includes('CHEST')) {
+                    console.log(`🔄 Before VOB transform - chest parts positions:`);
+                    for (let i = 0; i < modelGroup.children.length; i++) {
+                        const child = modelGroup.children[i];
+                        console.log(`   Part ${i}: (${child.position.x.toFixed(2)}, ${child.position.y.toFixed(2)}, ${child.position.z.toFixed(2)})`);
+                    }
+                }
+
                 applyVobTransform(modelGroup, vob);
+
+                // For chest models, log after VOB transform
+                if (visualName.includes('CHEST')) {
+                    console.log(`✅ After VOB transform - chest parts positions:`);
+                    for (let i = 0; i < modelGroup.children.length; i++) {
+                        const child = modelGroup.children[i];
+                        console.log(`   Part ${i}: (${child.position.x.toFixed(2)}, ${child.position.y.toFixed(2)}, ${child.position.z.toFixed(2)})`);
+                    }
+                    console.log(`   Chest group transform: pos(${modelGroup.position.x.toFixed(2)}, ${modelGroup.position.y.toFixed(2)}, ${modelGroup.position.z.toFixed(2)}) rot(${modelGroup.quaternion.x.toFixed(3)}, ${modelGroup.quaternion.y.toFixed(3)}, ${modelGroup.quaternion.z.toFixed(3)}, ${modelGroup.quaternion.w.toFixed(3)})`);
+                }
+
+                // Debug: check final positions of attachments in the model
+                // Log final positions for chest models to verify correct rendering
+                if (visualName.includes('CHEST')) {
+                    console.log(`✅ Chest "${visualName}" rendered at (${modelGroup.position.x.toFixed(2)}, ${modelGroup.position.y.toFixed(2)}, ${modelGroup.position.z.toFixed(2)}) with ${modelGroup.children.length} parts`);
+                }
 
                 scene.add(modelGroup);
 
@@ -839,38 +1101,62 @@
 
         // Helper function to apply VOB transform to an object
         function applyVobTransform(object, vob) {
-            // Apply VOB transform using OpenGothic's approach
-            const rotArray = vob.rotation.toArray();
-            const m = [];
-            for (let i = 0; i < rotArray.size(); i++) {
-                m.push(rotArray.get(i));
+                // Apply VOB transform using OpenGothic's approach
+                const rotArray = vob.rotation.toArray();
+                const m = [];
+                for (let i = 0; i < rotArray.size(); i++) {
+                    m.push(rotArray.get(i));
+                }
+                
+            // Special logging for TEST_CHEST transform
+            if (vob.vob_name === 'TEST_CHEST') {
+                console.log('🔄 Applying TEST_CHEST transform:', {
+                    rawPosition: [vob.position.x, vob.position.y, vob.position.z],
+                    rawRotation: [
+                        [m[0], m[1], m[2]],
+                        [m[3], m[4], m[5]],
+                        [m[6], m[7], m[8]]
+                    ]
+                });
             }
 
             // Build transform matrix exactly like OpenGothic does
-            const transformMat = new THREE.Matrix4();
-            transformMat.set(
-                -m[0], -m[3], -m[6], -vob.position.x,  // Negate X components for mirroring
-                 m[1],  m[4],  m[7],  vob.position.y,
-                 m[2],  m[5],  m[8],  vob.position.z,
-                0, 0, 0, 1
-            );
-
-            // Decompose matrix into position, quaternion, scale for Three.js
-            const pos = new THREE.Vector3();
-            const quat = new THREE.Quaternion();
-            const scale = new THREE.Vector3();
-            transformMat.decompose(pos, quat, scale);
-
+                const transformMat = new THREE.Matrix4();
+                transformMat.set(
+                    -m[0], -m[3], -m[6], -vob.position.x,  // Negate X components for mirroring
+                     m[1],  m[4],  m[7],  vob.position.y,
+                     m[2],  m[5],  m[8],  vob.position.z,
+                    0, 0, 0, 1
+                );
+                
+                // Decompose matrix into position, quaternion, scale for Three.js
+                const pos = new THREE.Vector3();
+                const quat = new THREE.Quaternion();
+                const scale = new THREE.Vector3();
+                transformMat.decompose(pos, quat, scale);
+                
             // Quick fix: Rotate interactive VOBs by 180 degrees around Y axis
-            if (vob.type === 22) { // ITEM type (interactive VOBs)
+            // TEMPORARILY DISABLED to test if Y rotation is causing positioning issues
+            if (vob.type === 22 && false) { // Interactive VOBs (chests, items, etc.)
+                console.log(`🔄 Applying 180° Y rotation to interactive VOB ${vob.vob_name} (type ${vob.type})`);
                 const yRotation = new THREE.Quaternion();
                 yRotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); // 180 degrees
                 quat.multiply(yRotation);
+                console.log(`✅ Y rotation applied, new quaternion: [${quat.x.toFixed(3)}, ${quat.y.toFixed(3)}, ${quat.z.toFixed(3)}, ${quat.w.toFixed(3)}]`);
             }
 
             object.position.copy(pos);
             object.quaternion.copy(quat);
             object.scale.copy(scale);
+
+            // Special logging for TEST_CHEST final transform
+            if (vob.vob_name === 'TEST_CHEST') {
+                console.log('✅ TEST_CHEST final transform applied:', {
+                    threeJsPosition: [pos.x, pos.y, pos.z],
+                    threeJsRotation: [quat.x, quat.y, quat.z, quat.w],
+                    threeJsScale: [scale.x, scale.y, scale.z]
+                });
+            }
         }
 
 
@@ -918,14 +1204,14 @@
             const upper = visualName.toUpperCase();
 
             // Remove extension if present and get base name
-            const base = upper.replace(/\.(MDL|3DS|MMS|ASC|TGA)$/i, '');
+            const base = upper.replace(/\.(MDL|MDS|3DS|MMS|ASC|TGA)$/i, '');
 
             // Interactive models are stored in ANIMS/_COMPILED folder as .MDL files
             const modelPath = `/public/game-assets/ANIMS/_COMPILED/${base}.MDL`;
 
             return modelPath;
         }
-
+        
         function onWindowResize() {
             const canvas = document.getElementById('threejs-canvas');
             camera.aspect = canvas.clientWidth / canvas.clientHeight;
@@ -971,6 +1257,28 @@
 
         // Initialize on page load
         initZenKit();
+
+        // Set up control button event listeners
+        document.getElementById('teleportToChestBtn').addEventListener('click', () => {
+            teleportToChest();
+        });
+
+        // Teleport camera to chest position (0, 100, 0)
+        function teleportToChest() {
+            console.log('🎯 Teleporting to chest at position [0, 100, 0]');
+
+            // Position camera above the chest looking down
+            camera.position.set(0, 200, 0); // Above the chest
+            camera.lookAt(0, 100, 0); // Look at chest position
+
+            // Update orbital controls target
+            targetX = Math.atan2(camera.position.z, camera.position.x);
+            targetY = Math.asin(camera.position.y / distance);
+            distance = camera.position.length();
+
+            renderer.render(scene, camera);
+            console.log('✅ Teleported to chest position');
+        }
     </script>
 </body>
 </html>
