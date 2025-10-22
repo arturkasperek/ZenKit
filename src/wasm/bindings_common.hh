@@ -15,6 +15,7 @@
 #include "zenkit/Model.hh"
 #include "zenkit/MultiResolutionMesh.hh"
 #include "zenkit/SoftSkinMesh.hh"
+#include "zenkit/MorphMesh.hh"
 #include "zenkit/Archive.hh"
 #include "zenkit/Texture.hh"
 #include "zenkit/World.hh"
@@ -98,7 +99,7 @@ namespace zenkit::wasm {
         std::vector<uint32_t> indices;        // triangle indices into vertices array
         std::vector<uint32_t> materialIds;    // per-triangle material ID (deduplicated)
         std::vector<MaterialData> materials;  // deduplicated material list
-        
+
         ProcessedMeshData() = default;
     };
 
@@ -707,6 +708,74 @@ namespace zenkit::wasm {
 
     private:
         zenkit::Model model_;
+        mutable std::string last_error_;
+    };
+
+    /// \brief Wrapper for MorphAnimation with WebAssembly-friendly interface
+    class MorphAnimationWrapper {
+    public:
+        explicit MorphAnimationWrapper(const zenkit::MorphAnimation& anim) : anim_(anim) {}
+
+        std::string getName() const { return anim_.name; }
+        int32_t getLayer() const { return anim_.layer; }
+        float getBlendIn() const { return anim_.blend_in; }
+        float getBlendOut() const { return anim_.blend_out; }
+        float getDuration() const { return anim_.duration; }
+        float getSpeed() const { return anim_.speed; }
+        uint8_t getFlags() const { return anim_.flags; }
+        uint32_t getFrameCount() const { return anim_.frame_count; }
+        const std::vector<uint32_t>& getVertices() const { return anim_.vertices; }
+        const std::vector<zenkit::Vec3>& getSamples() const { return anim_.samples; }
+
+    private:
+        const zenkit::MorphAnimation& anim_;
+    };
+
+    /// \brief Wrapper for MorphMesh with WebAssembly-friendly interface
+    class MorphMeshWrapper {
+    public:
+        MorphMeshWrapper() = default;
+        explicit MorphMeshWrapper(const zenkit::MorphMesh& morph_mesh) : morph_mesh_(morph_mesh) {}
+        ~MorphMeshWrapper() = default;
+
+        // Non-copyable but movable
+        MorphMeshWrapper(const MorphMeshWrapper&) = delete;
+        MorphMeshWrapper& operator=(const MorphMeshWrapper&) = delete;
+        MorphMeshWrapper(MorphMeshWrapper&&) = default;
+        MorphMeshWrapper& operator=(MorphMeshWrapper&&) = default;
+
+        /// \brief Load morph mesh from WebAssembly memory buffer
+        Result<bool> load(uintptr_t data_ptr, size_t length);
+
+        /// \brief Load morph mesh from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Check if morph mesh loaded successfully
+        bool isLoaded() const;
+
+        /// \brief Get the underlying morph mesh
+        const zenkit::MorphMesh& getMorphMesh() const { return morph_mesh_; }
+
+        /// \brief Get the base mesh
+        const zenkit::MultiResolutionMesh& getMesh() const { return morph_mesh_.mesh; }
+
+        /// \brief Get animations count
+        size_t getAnimationsCount() const { return morph_mesh_.animations.size(); }
+
+        /// \brief Get morph positions count
+        size_t getMorphPositionsCount() const { return morph_mesh_.morph_positions.size(); }
+
+        /// \brief Convert MultiResolutionMesh to ProcessedMeshData for Three.js rendering
+        ProcessedMeshData convertToProcessedMesh() const;
+
+        /// \brief Get animation names
+        std::vector<std::string> getAnimationNames() const;
+
+    private:
+        zenkit::MorphMesh morph_mesh_;
         mutable std::string last_error_;
     };
 

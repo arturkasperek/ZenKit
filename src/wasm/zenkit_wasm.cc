@@ -169,4 +169,36 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
     function("createModel", select_overload<std::unique_ptr<ModelWrapper>()>([]() {
         return std::make_unique<ModelWrapper>();
     }));
+
+    // MorphMesh classes
+    class_<MorphAnimationWrapper>("MorphAnimation")
+        .property("name", &MorphAnimationWrapper::getName)
+        .property("layer", &MorphAnimationWrapper::getLayer)
+        .property("blendIn", &MorphAnimationWrapper::getBlendIn)
+        .property("blendOut", &MorphAnimationWrapper::getBlendOut)
+        .property("duration", &MorphAnimationWrapper::getDuration)
+        .property("speed", &MorphAnimationWrapper::getSpeed)
+        .property("flags", &MorphAnimationWrapper::getFlags)
+        .property("frameCount", &MorphAnimationWrapper::getFrameCount)
+        .function("getVertices", &MorphAnimationWrapper::getVertices)
+        .function("getSamples", &MorphAnimationWrapper::getSamples);
+
+    // Register vector types
+    register_vector<zenkit::MorphAnimation>("VectorMorphAnimation");
+
+    // MorphMesh wrapper
+    class_<MorphMeshWrapper>("MorphMesh")
+        .function("loadFromArray", &MorphMeshWrapper::loadFromArray)
+        .function("getLastError", &MorphMeshWrapper::getLastError)
+        .property("isLoaded", &MorphMeshWrapper::isLoaded)
+        .function("getMesh", &MorphMeshWrapper::getMesh, allow_raw_pointers())
+        .function("getAnimationsCount", &MorphMeshWrapper::getAnimationsCount)
+        .function("getMorphPositionsCount", &MorphMeshWrapper::getMorphPositionsCount)
+        .function("convertToProcessedMesh", &MorphMeshWrapper::convertToProcessedMesh)
+        .function("getAnimationNames", &MorphMeshWrapper::getAnimationNames);
+
+    // Factory function for morph meshes
+    function("createMorphMesh", select_overload<std::unique_ptr<MorphMeshWrapper>()>([]() {
+        return std::make_unique<MorphMeshWrapper>();
+    }));
 }

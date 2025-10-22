@@ -68,7 +68,12 @@
                 <div>Draw Calls: <span id="drawCalls">0</span></div>
             </div>
 
-            <div class="controls-info">
+            <div id="status" class="controls-info">
+                <div><strong>Loading Status:</strong></div>
+                <div>Initializing ZenKit...</div>
+            </div>
+
+            <div class="controls-info" style="top: 120px;">
                 <div><strong>Camera Controls:</strong></div>
                 <div>Mouse: Click & drag to look around</div>
                 <div>WASD / Arrows: Move</div>
@@ -93,6 +98,7 @@
         const textureCache = new Map(); // path -> THREE.DataTexture
         const materialCache = new Map(); // texture path -> THREE.Material
         const modelCache = new Map(); // path -> ZenKit Model instance
+        const morphMeshCache = new Map(); // path -> { morphMesh, processed, animations }
         
         // VOB management
         const loadedVOBs = new Map(); // vob id -> THREE.Mesh
@@ -270,6 +276,10 @@
 
         function updateStatus(message, type = 'loading') {
             console.log(message);
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                statusEl.innerHTML = `<div><strong>Loading Status:</strong></div><div>${message}</div>`;
+            }
         }
 
         async function tryLoadDefaultFile() {
@@ -579,7 +589,7 @@
                 const loadedCount = loadedVOBs.size;
                 const totalCount = allVOBs.length;
                 const queueCount = vobLoadQueue.length;
-                statusEl.innerHTML = `📦 VOBs: ${loadedCount}/${totalCount} loaded | Queue: ${queueCount} | Cache: ${meshCache.size} meshes, ${textureCache.size} textures`;
+                statusEl.innerHTML = `📦 VOBs: ${loadedCount}/${totalCount} loaded | Queue: ${queueCount} | Cache: ${meshCache.size} meshes, ${morphMeshCache.size} morphs, ${textureCache.size} textures`;
             }
             
             // Continue streaming
@@ -668,6 +678,57 @@
                 return null;
             }
         }
+
+        // Cached morph mesh loader for .MMB files
+        async function loadMorphMeshCached(morphPath) {
+            // Check cache first
+            if (morphMeshCache.has(morphPath)) {
+                return morphMeshCache.get(morphPath);
+            }
+
+            try {
+                const response = await fetch(morphPath);
+                if (!response.ok) {
+                    return null;
+                }
+
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                // Load morph mesh with ZenKit
+                const morphMesh = ZenKit.createMorphMesh();
+                const loadResult = morphMesh.loadFromArray(uint8Array);
+
+                if (!loadResult || !loadResult.success) {
+                    console.warn(`Failed to load morph mesh ${morphPath}:`, morphMesh.getLastError());
+                    return null;
+                }
+
+                if (!morphMesh.isLoaded) {
+                    console.warn(`Morph mesh ${morphPath} loaded but reports not loaded`);
+                    return null;
+                }
+
+                // Get processed mesh data for rendering
+                const processed = morphMesh.convertToProcessedMesh();
+                const animationNames = morphMesh.getAnimationNames();
+                const animationCount = animationNames.size();
+
+                const result = {
+                    morphMesh: morphMesh,
+                    processed: processed,
+                    animationCount: animationCount
+                };
+
+                // Cache and return
+                morphMeshCache.set(morphPath, result);
+                console.log(`✅ Loaded morph mesh ${morphPath} (${animationCount} animations available)`);
+                return result;
+            } catch (error) {
+                console.warn(`Failed to load morph mesh ${morphPath}:`, error);
+                return null;
+            }
+        }
         
         // Cached texture loader
         async function loadTextureCached(texturePath) {
@@ -742,9 +803,13 @@
             }
 
                     // Handle different visual types
-            if (vob.visual.type === 5 || vob.visual.type === 6) {
-                // MODEL (5) or MORPH_MESH (6) - load .MDL file
+            if (vob.visual.type === 5) {
+                // MODEL (5) - load .MDL file
                 return await renderModelVOB(vob, vobId);
+            } else if (vob.visual.type === 6) {
+                // MORPH_MESH (6) - load .MMB file
+                console.log(`🐟 Detected morph mesh VOB: ${visualName} (type: ${vob.visual.type})`);
+                return await renderMorphMeshVOB(vob, vobId);
             } else {
                 // MESH (1) or MULTI_RES_MESH (2) - load mesh file
             const meshPath = getMeshPath(visualName);
@@ -972,6 +1037,53 @@
             }
         }
 
+        // Render morph mesh VOB (for MORPH_MESH types)
+        async function renderMorphMeshVOB(vob, vobId) {
+            try {
+                const visualName = vob.visual.name;
+
+                // Build morph mesh path - convert to .MMB file
+                const morphPath = getMorphMeshPath(visualName);
+                if (!morphPath) {
+                    return false;
+                }
+
+                // Load morph mesh with caching
+                const morphData = await loadMorphMeshCached(morphPath);
+                if (!morphData) {
+                    return false;
+                }
+
+                // Build Three.js geometry and materials from processed mesh data
+                const { geometry, materials } = await buildThreeJSGeometryAndMaterials(morphData.processed);
+
+                if (!geometry) {
+                    return false;
+                }
+
+                // Create mesh with materials
+                const morphMesh = new THREE.Mesh(geometry, materials);
+
+                // Apply VOB transform
+                applyVobTransform(morphMesh, vob);
+
+                scene.add(morphMesh);
+
+                // Register loaded VOB if we have an ID
+                if (vobId) {
+                    loadedVOBs.set(vobId, morphMesh);
+                }
+
+                console.log(`✅ Rendered morph mesh VOB ${visualName} (${morphData.animationCount} animations available)`);
+
+                return true; // Successfully rendered
+
+            } catch (error) {
+                console.warn(`Failed to render morph mesh VOB ${vob.visual.name}:`, error);
+                return false;
+            }
+        }
+
         // Helper function to apply VOB transform to an object
         function applyVobTransform(object, vob) {
                 // Apply VOB transform using OpenGothic's approach
@@ -1054,6 +1166,20 @@
             const modelPath = `/public/game-assets/ANIMS/_COMPILED/${base}.MDL`;
 
             return modelPath;
+        }
+
+        function getMorphMeshPath(visualName) {
+            if (!visualName || typeof visualName !== 'string') return null;
+
+            const upper = visualName.toUpperCase();
+
+            // Remove extension if present and get base name
+            const base = upper.replace(/\.(MMB|MMS|MMSB|MDS|3DS|ASC|TGA)$/i, '');
+
+            // Morph meshes are stored in ANIMS/_COMPILED folder as .MMB files
+            const morphPath = `/public/game-assets/ANIMS/_COMPILED/${base}.MMB`;
+
+            return morphPath;
         }
         
         function onWindowResize() {

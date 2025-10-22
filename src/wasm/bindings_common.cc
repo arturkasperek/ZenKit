@@ -468,4 +468,94 @@ namespace zenkit::wasm {
         return result;
     }
 
+    // MorphMeshWrapper method implementations
+    Result<bool> MorphMeshWrapper::load(uintptr_t data_ptr, size_t length) {
+        try {
+            auto reader = create_reader_from_buffer(data_ptr, length);
+            morph_mesh_.load(reader.get());
+
+            last_error_.clear();
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
+        }
+    }
+
+    Result<bool> MorphMeshWrapper::loadFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            morph_mesh_.load(reader.get());
+
+            last_error_.clear();
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
+        }
+    }
+
+    bool MorphMeshWrapper::isLoaded() const {
+        return last_error_.empty() && !morph_mesh_.mesh.sub_meshes.empty();
+    }
+
+    ProcessedMeshData MorphMeshWrapper::convertToProcessedMesh() const {
+        ProcessedMeshData result;
+
+        // For MultiResolutionMesh, we need to build vertex data from submeshes
+        // Each submesh has wedges with position/normal/uv data
+        uint32_t current_vertex_offset = 0;
+        uint32_t current_material_index = 0;
+
+        for (const auto& submesh : morph_mesh_.mesh.sub_meshes) {
+            // Add the submesh material to our materials list
+            MaterialData mat_data;
+            mat_data.name = submesh.mat.name;
+            mat_data.group = static_cast<uint32_t>(submesh.mat.group);
+            mat_data.texture = submesh.mat.texture;
+            result.materials.push_back(mat_data);
+
+            // Process wedges for this submesh
+            for (const auto& wedge : submesh.wedges) {
+                // Position
+                result.vertices.push_back(morph_mesh_.mesh.positions[wedge.index].x);
+                result.vertices.push_back(morph_mesh_.mesh.positions[wedge.index].y);
+                result.vertices.push_back(morph_mesh_.mesh.positions[wedge.index].z);
+
+                // Normal
+                result.vertices.push_back(wedge.normal.x);
+                result.vertices.push_back(wedge.normal.y);
+                result.vertices.push_back(wedge.normal.z);
+
+                // UV coordinates
+                result.vertices.push_back(wedge.texture.x);
+                result.vertices.push_back(wedge.texture.y);
+            }
+
+            // Process triangles
+            for (const auto& triangle : submesh.triangles) {
+                result.indices.push_back(triangle.wedges[0] + current_vertex_offset);
+                result.indices.push_back(triangle.wedges[1] + current_vertex_offset);
+                result.indices.push_back(triangle.wedges[2] + current_vertex_offset);
+
+                // Each triangle in this submesh uses the same material index
+                result.materialIds.push_back(current_material_index);
+            }
+
+            current_vertex_offset += submesh.wedges.size();
+            current_material_index++;
+        }
+
+        return result;
+    }
+
+    std::vector<std::string> MorphMeshWrapper::getAnimationNames() const {
+        std::vector<std::string> names;
+        names.reserve(morph_mesh_.animations.size());
+        for (const auto& anim : morph_mesh_.animations) {
+            names.push_back(anim.name);
+        }
+        return names;
+    }
+
 } // namespace zenkit::wasm
