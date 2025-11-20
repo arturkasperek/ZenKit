@@ -44,6 +44,8 @@ declare module '@kolarz3/zenkit' {
   }
 
   export interface Vob {
+    // VOB ID
+    id: number;
     // Position in world space
     position: {
       x: number;
