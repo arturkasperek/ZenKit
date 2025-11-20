@@ -1,4 +1,4 @@
-declare module 'zenkit' {
+declare module '@kolarz3/zenkit' {
   export interface ZenKit {
     // World operations
     createWorld(): World;
@@ -29,8 +29,10 @@ declare module 'zenkit' {
     // Get VOBs collection
     getVobs(): VobCollection;
     
-    // World mesh
-    mesh: Mesh;
+    // World mesh - directly exposes getProcessedMeshData() method
+    mesh: {
+      getProcessedMeshData(): ProcessedMeshData;
+    };
   }
 
   export interface VobCollection {
@@ -49,9 +51,9 @@ declare module 'zenkit' {
       z: number;
     };
     
-    // Rotation matrix (3x3)
+    // Rotation matrix (3x3) - returns Emscripten TypedArrayLike object
     rotation: {
-      toArray(): number[]; // Returns 9-element array [m00, m01, m02, m10, m11, m12, m20, m21, m22]
+      toArray(): FloatArrayLike; // Returns Emscripten TypedArrayLike with 9 elements [m00, m01, m02, m10, m11, m12, m20, m21, m22]
     };
     
     // Visual properties
@@ -95,16 +97,36 @@ declare module 'zenkit' {
 
   export interface ProcessedMeshData {
     // Vertex data (8 floats per vertex: x, y, z, nx, ny, nz, u, v)
-    vertices: TypedArrayLike;
+    vertices: FloatArrayLike;
     
     // Index data (indices into vertex array)
-    indices: TypedArrayLike;
+    indices: IntArrayLike;
     
     // Material data
-    materials: TypedArrayLike;
+    materials: MaterialArrayLike;
     
     // Material IDs per triangle
-    materialIds: TypedArrayLike;
+    materialIds: IntArrayLike;
+  }
+
+  export interface FloatArrayLike {
+    size(): number;
+    get(index: number): number;
+  }
+
+  export interface IntArrayLike {
+    size(): number;
+    get(index: number): number;
+  }
+
+  export interface MaterialArrayLike {
+    size(): number;
+    get(index: number): Material;
+  }
+
+  export interface StringArrayLike {
+    size(): number;
+    get(index: number): string;
   }
 
   export interface TypedArrayLike {
@@ -131,15 +153,36 @@ declare module 'zenkit' {
     getLastError(): string | null;
     
     // Get attachment names
-    getAttachmentNames(): TypedArrayLike; // Returns array of strings
+    getAttachmentNames(): StringArrayLike; // Returns array of strings
     
     // Get attachment by name
     getAttachment(name: string): Attachment | null;
+    
+    // Get model hierarchy
+    getHierarchy(): {
+      nodes: {
+        size?: () => number;
+        get?: (index: number) => HierarchyNode;
+        length?: number;
+        [index: number]: HierarchyNode;
+      };
+    };
+    
+    // Convert attachment to processed mesh
+    convertAttachmentToProcessedMesh(attachment: Attachment): ProcessedMeshData;
   }
 
   export interface Attachment {
     // Attachment data (mesh or other visual)
     // Implementation details depend on ZenKit internals
+  }
+
+  export interface HierarchyNode {
+    name: string;
+    parentIndex: number;
+    getTransform(): {
+      toArray(): number[]; // 16-element matrix array
+    };
   }
 
   export interface MorphMesh {
@@ -156,7 +199,7 @@ declare module 'zenkit' {
     convertToProcessedMesh(): ProcessedMeshData;
     
     // Get animation names
-    getAnimationNames(): TypedArrayLike; // Returns array of strings
+    getAnimationNames(): StringArrayLike; // Returns array of strings
   }
 
   export interface Texture {
