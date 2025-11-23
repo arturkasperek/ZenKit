@@ -881,7 +881,6 @@
 
         // Shared function to build Three.js geometry and materials from processed mesh data
         async function buildThreeJSGeometryAndMaterials(processed) {
-                const vertCount = processed.vertices.size();
                 const idxCount = processed.indices.size();
                 const matCount = processed.materials.size();
 
@@ -992,12 +991,71 @@
                     return false;
                 }
 
-                // For now, render all attachments as a group
-                // In the future, we could render SoftSkinMesh for animated characters
+                // Check for attachments first
                 const attachmentNames = model.getAttachmentNames();
+                const attachmentCount = attachmentNames.size();
 
-                if (attachmentNames.size() === 0) {
-                    return false;
+                // Check for soft-skin meshes if no attachments
+                if (attachmentCount === 0) {
+                    const softSkinMeshes = model.getSoftSkinMeshes();
+                    const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
+                    
+                    if (softSkinCount === 0) {
+                        return false;
+                    }
+                    
+                    // Render soft-skin meshes
+                    // In OpenGothic, soft-skin meshes use skeleton transforms, but for static models
+                    // they're positioned relative to the root node translation
+                    const hierarchy = model.getHierarchy();
+                    const modelGroup = new THREE.Group();
+                    
+                    // Get root translation from hierarchy (similar to OpenGothic's mkBaseTranslation)
+                    // OpenGothic's mkBaseTranslation() extracts from processed root node transform and negates it
+                    // We use the hierarchy's root_translation directly, negated
+                    let rootNodeTranslation = new THREE.Vector3(0, 0, 0);
+                    if (hierarchy.rootTranslation) {
+                        rootNodeTranslation.set(
+                            -hierarchy.rootTranslation.x,
+                            -hierarchy.rootTranslation.y,
+                            -hierarchy.rootTranslation.z
+                        );
+                    }
+                    
+                    for (let i = 0; i < softSkinCount; i++) {
+                        const softSkinMesh = softSkinMeshes.get(i);
+                        if (!softSkinMesh) continue;
+                        
+                        // Convert soft-skin mesh to processed mesh data
+                        const processed = model.convertSoftSkinMeshToProcessedMesh(softSkinMesh);
+                        if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
+                            continue;
+                        }
+                        
+                        // Build Three.js geometry and materials
+                        const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed);
+                        
+                        // Create mesh - soft-skin meshes are positioned relative to root node
+                        // Apply root node translation offset (similar to OpenGothic's mkBaseTranslation logic)
+                        const softSkinMeshObj = new THREE.Mesh(geometry, materials);
+                        softSkinMeshObj.position.copy(rootNodeTranslation);
+                        
+                        modelGroup.add(softSkinMeshObj);
+                    }
+                    
+                    if (modelGroup.children.length === 0) {
+                        return false;
+                    }
+                    
+                    // Apply VOB transform
+                    applyVobTransform(modelGroup, vob);
+                    scene.add(modelGroup);
+                    
+                    if (vobId) {
+                        loadedVOBs.set(vobId, modelGroup);
+                    }
+                    
+                    return true;
                 }
 
                 // Get the model hierarchy to position attachments correctly
@@ -1038,7 +1096,9 @@
                 for (let i = 0; i < attachmentNames.size(); i++) {
                     const attachmentName = attachmentNames.get(i);
                     const attachment = model.getAttachment(attachmentName);
-                    if (!attachment) continue;
+                    if (!attachment) {
+                        continue;
+                    }
 
                     // Find the corresponding hierarchy node for this attachment
                     // The attachment name should match a hierarchy node name
@@ -1073,9 +1133,12 @@
                     modelGroup.add(attachmentMesh);
                 }
 
+                if (modelGroup.children.length === 0) {
+                    return false;
+                }
+
                 // Apply VOB transform using the same approach as regular VOBs
                 applyVobTransform(modelGroup, vob);
-
                 scene.add(modelGroup);
 
                 // Register loaded VOB if we have an ID

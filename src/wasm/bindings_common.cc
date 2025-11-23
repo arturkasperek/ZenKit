@@ -470,6 +470,14 @@ namespace zenkit::wasm {
         return result;
     }
 
+    ProcessedMeshData ModelWrapper::convertSoftSkinMeshToProcessedMesh(const zenkit::SoftSkinMesh* softSkinMesh) const {
+        if (!softSkinMesh) {
+            return ProcessedMeshData{}; // Return empty data
+        }
+        // SoftSkinMesh contains a MultiResolutionMesh, so we can reuse the same conversion logic
+        return convertAttachmentToProcessedMesh(&softSkinMesh->mesh);
+    }
+
     // MorphMeshWrapper method implementations
     Result<bool> MorphMeshWrapper::load(uintptr_t data_ptr, size_t length) {
         try {

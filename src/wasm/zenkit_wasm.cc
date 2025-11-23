@@ -141,7 +141,14 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
 
     // ModelHierarchy classes
     class_<zenkit::ModelHierarchy>("ModelHierarchy")
-        .property("nodes", &zenkit::ModelHierarchy::nodes);
+        .property("nodes", &zenkit::ModelHierarchy::nodes)
+        .property("rootTranslation", +[](const zenkit::ModelHierarchy& h) {
+            auto obj = emscripten::val::object();
+            obj.set("x", h.root_translation.x);
+            obj.set("y", h.root_translation.y);
+            obj.set("z", h.root_translation.z);
+            return obj;
+        });
 
     class_<zenkit::ModelHierarchyNode>("ModelHierarchyNode")
         .property("parentIndex", &zenkit::ModelHierarchyNode::parent_index)
@@ -181,7 +188,8 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
         .function("getSoftSkinMeshes", &ModelWrapper::getSoftSkinMeshes)
         .function("getAttachmentNames", &ModelWrapper::getAttachmentNames)
         .function("getAttachment", &ModelWrapper::getAttachment, allow_raw_pointers())
-        .function("convertAttachmentToProcessedMesh", &ModelWrapper::convertAttachmentToProcessedMesh, allow_raw_pointers());
+        .function("convertAttachmentToProcessedMesh", &ModelWrapper::convertAttachmentToProcessedMesh, allow_raw_pointers())
+        .function("convertSoftSkinMeshToProcessedMesh", &ModelWrapper::convertSoftSkinMeshToProcessedMesh, allow_raw_pointers());
 
     // Factory function for models
     function("createModel", select_overload<std::unique_ptr<ModelWrapper>()>([]() {

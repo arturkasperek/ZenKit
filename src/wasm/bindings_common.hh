@@ -706,6 +706,9 @@ namespace zenkit::wasm {
         /// \brief Convert MultiResolutionMesh to ProcessedMeshData for Three.js rendering
         ProcessedMeshData convertAttachmentToProcessedMesh(const zenkit::MultiResolutionMesh* attachment) const;
 
+        /// \brief Convert SoftSkinMesh to ProcessedMeshData for Three.js rendering
+        ProcessedMeshData convertSoftSkinMeshToProcessedMesh(const zenkit::SoftSkinMesh* softSkinMesh) const;
+
         /// \brief Set hierarchy from a separately loaded ModelHierarchy
         void setHierarchy(const zenkit::ModelHierarchy& hierarchy) { model_.hierarchy = hierarchy; }
 

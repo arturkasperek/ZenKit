@@ -174,6 +174,11 @@ declare module '@kolarz3/zenkit' {
         length?: number;
         [index: number]: HierarchyNode;
       };
+      rootTranslation?: {
+        x: number;
+        y: number;
+        z: number;
+      };
     };
     
     // Set model hierarchy (for combining separately loaded hierarchy and mesh)
@@ -195,6 +200,20 @@ declare module '@kolarz3/zenkit' {
     
     // Convert attachment to processed mesh
     convertAttachmentToProcessedMesh(attachment: Attachment): ProcessedMeshData;
+    
+    // Get soft-skin meshes (for models without attachments)
+    getSoftSkinMeshes(): {
+      size(): number;
+      get(index: number): SoftSkinMesh | null;
+    };
+    
+    // Convert soft-skin mesh to processed mesh
+    convertSoftSkinMeshToProcessedMesh(softSkinMesh: SoftSkinMesh): ProcessedMeshData;
+  }
+  
+  export interface SoftSkinMesh {
+    // Soft-skin mesh data (contains MultiResolutionMesh internally)
+    mesh: any;
   }
 
   export interface ModelHierarchyLoader {
