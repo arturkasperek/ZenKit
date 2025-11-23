@@ -9,6 +9,12 @@ declare module '@kolarz3/zenkit' {
     // Model operations
     createModel(): Model;
     
+    // Model hierarchy loader (for loading .MDH files separately)
+    createModelHierarchyLoader(): ModelHierarchyLoader;
+    
+    // Model mesh loader (for loading .MDM files separately)
+    createModelMeshLoader(): ModelMeshLoader;
+    
     // Morph mesh operations
     createMorphMesh(): MorphMesh;
     
@@ -170,8 +176,58 @@ declare module '@kolarz3/zenkit' {
       };
     };
     
+    // Set model hierarchy (for combining separately loaded hierarchy and mesh)
+    setHierarchy(hierarchy: {
+      nodes: {
+        size?: () => number;
+        get?: (index: number) => HierarchyNode;
+        length?: number;
+        [index: number]: HierarchyNode;
+      };
+    }): void;
+    
+    // Set model mesh (for combining separately loaded hierarchy and mesh)
+    setMesh(mesh: {
+      attachments: any; // Internal mesh structure
+      meshes: any;
+      checksum: number;
+    }): void;
+    
     // Convert attachment to processed mesh
     convertAttachmentToProcessedMesh(attachment: Attachment): ProcessedMeshData;
+  }
+
+  export interface ModelHierarchyLoader {
+    // Load hierarchy from buffer (.MDH format)
+    loadFromArray(buffer: Uint8Array): { success: boolean };
+    
+    // Get last error message
+    getLastError(): string | null;
+    
+    // Get the loaded hierarchy
+    getHierarchy(): {
+      nodes: {
+        size?: () => number;
+        get?: (index: number) => HierarchyNode;
+        length?: number;
+        [index: number]: HierarchyNode;
+      };
+    };
+  }
+
+  export interface ModelMeshLoader {
+    // Load mesh from buffer (.MDM format)
+    loadFromArray(buffer: Uint8Array): { success: boolean };
+    
+    // Get last error message
+    getLastError(): string | null;
+    
+    // Get the loaded mesh
+    getMesh(): {
+      attachments: any; // Internal mesh structure
+      meshes: any;
+      checksum: number;
+    };
   }
 
   export interface Attachment {
