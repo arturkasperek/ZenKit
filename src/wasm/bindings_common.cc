@@ -5,6 +5,8 @@
 #include "zenkit/Texture.hh"
 #include "zenkit/World.hh"
 #include "zenkit/Model.hh"
+#include "zenkit/ModelHierarchy.hh"
+#include "zenkit/ModelMesh.hh"
 #include "zenkit/MultiResolutionMesh.hh"
 #include "zenkit/SoftSkinMesh.hh"
 #include "zenkit/vobs/VirtualObject.hh"
@@ -556,6 +558,32 @@ namespace zenkit::wasm {
             names.push_back(anim.name);
         }
         return names;
+    }
+
+    // ModelHierarchyWrapper method implementations
+    Result<bool> ModelHierarchyWrapper::loadFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            hierarchy_.load(reader.get());
+            last_error_.clear();
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
+        }
+    }
+
+    // ModelMeshWrapper method implementations
+    Result<bool> ModelMeshWrapper::loadFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            mesh_.load(reader.get());
+            last_error_.clear();
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
+        }
     }
 
 } // namespace zenkit::wasm

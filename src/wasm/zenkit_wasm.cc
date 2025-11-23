@@ -153,6 +153,22 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
     // Register vector types
     register_vector<zenkit::ModelHierarchyNode>("VectorModelHierarchyNode");
 
+    // ModelMesh class registration (needed for getMesh to work with allow_raw_pointers)
+    // We don't expose properties directly since we use allow_raw_pointers() for the return value
+    class_<zenkit::ModelMesh>("ModelMesh");
+
+    // ModelHierarchyWrapper for loading .MDH files separately
+    class_<ModelHierarchyWrapper>("ModelHierarchyLoader")
+        .function("loadFromArray", &ModelHierarchyWrapper::loadFromArray)
+        .function("getLastError", &ModelHierarchyWrapper::getLastError)
+        .function("getHierarchy", &ModelHierarchyWrapper::getHierarchy, allow_raw_pointers());
+
+    // ModelMeshWrapper for loading .MDM files separately
+    class_<ModelMeshWrapper>("ModelMeshLoader")
+        .function("loadFromArray", &ModelMeshWrapper::loadFromArray)
+        .function("getLastError", &ModelMeshWrapper::getLastError)
+        .function("getMesh", &ModelMeshWrapper::getMesh, allow_raw_pointers());
+
     // Model class for loading .MDL files
     class_<ModelWrapper>("Model")
         .function("load", &ModelWrapper::load)
@@ -160,6 +176,8 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
         .function("getLastError", &ModelWrapper::getLastError)
         .property("isLoaded", &ModelWrapper::isLoaded)
         .function("getHierarchy", &ModelWrapper::getHierarchy, allow_raw_pointers())
+        .function("setHierarchy", &ModelWrapper::setHierarchy, allow_raw_pointers())
+        .function("setMesh", &ModelWrapper::setMesh, allow_raw_pointers())
         .function("getSoftSkinMeshes", &ModelWrapper::getSoftSkinMeshes)
         .function("getAttachmentNames", &ModelWrapper::getAttachmentNames)
         .function("getAttachment", &ModelWrapper::getAttachment, allow_raw_pointers())
@@ -168,6 +186,15 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
     // Factory function for models
     function("createModel", select_overload<std::unique_ptr<ModelWrapper>()>([]() {
         return std::make_unique<ModelWrapper>();
+    }));
+
+    // Factory functions for separate hierarchy and mesh loaders
+    function("createModelHierarchyLoader", select_overload<std::unique_ptr<ModelHierarchyWrapper>()>([]() {
+        return std::make_unique<ModelHierarchyWrapper>();
+    }));
+
+    function("createModelMeshLoader", select_overload<std::unique_ptr<ModelMeshWrapper>()>([]() {
+        return std::make_unique<ModelMeshWrapper>();
     }));
 
     // MorphMesh classes

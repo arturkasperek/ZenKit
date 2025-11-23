@@ -706,8 +706,64 @@ namespace zenkit::wasm {
         /// \brief Convert MultiResolutionMesh to ProcessedMeshData for Three.js rendering
         ProcessedMeshData convertAttachmentToProcessedMesh(const zenkit::MultiResolutionMesh* attachment) const;
 
+        /// \brief Set hierarchy from a separately loaded ModelHierarchy
+        void setHierarchy(const zenkit::ModelHierarchy& hierarchy) { model_.hierarchy = hierarchy; }
+
+        /// \brief Set mesh from a separately loaded ModelMesh
+        void setMesh(const zenkit::ModelMesh& mesh) { model_.mesh = mesh; }
+
     private:
         zenkit::Model model_;
+        mutable std::string last_error_;
+    };
+
+    /// \brief Wrapper for ModelHierarchy that can be loaded separately
+    class ModelHierarchyWrapper {
+    public:
+        ModelHierarchyWrapper() = default;
+        ~ModelHierarchyWrapper() = default;
+
+        ModelHierarchyWrapper(const ModelHierarchyWrapper&) = delete;
+        ModelHierarchyWrapper& operator=(const ModelHierarchyWrapper&) = delete;
+        ModelHierarchyWrapper(ModelHierarchyWrapper&&) = default;
+        ModelHierarchyWrapper& operator=(ModelHierarchyWrapper&&) = default;
+
+        /// \brief Load hierarchy from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Get the hierarchy
+        const zenkit::ModelHierarchy& getHierarchy() const { return hierarchy_; }
+
+    private:
+        zenkit::ModelHierarchy hierarchy_;
+        mutable std::string last_error_;
+    };
+
+    /// \brief Wrapper for ModelMesh that can be loaded separately
+    class ModelMeshWrapper {
+    public:
+        ModelMeshWrapper() = default;
+        ~ModelMeshWrapper() = default;
+
+        ModelMeshWrapper(const ModelMeshWrapper&) = delete;
+        ModelMeshWrapper& operator=(const ModelMeshWrapper&) = delete;
+        ModelMeshWrapper(ModelMeshWrapper&&) = default;
+        ModelMeshWrapper& operator=(ModelMeshWrapper&&) = default;
+
+        /// \brief Load mesh from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Get the mesh
+        const zenkit::ModelMesh& getMesh() const { return mesh_; }
+
+    private:
+        zenkit::ModelMesh mesh_;
         mutable std::string last_error_;
     };
 
