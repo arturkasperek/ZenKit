@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <cstring>
 
 #include "zenkit/Stream.hh"
@@ -986,6 +987,21 @@ namespace zenkit::wasm {
         
         // Helper function to parse instance parameter from JavaScript
         Result<std::shared_ptr<zenkit::DaedalusInstance>> parseInstanceParameter(const emscripten::val& instanceName);
+        
+        // Storage for external function callbacks (universal registration)
+        struct ExternalCallbackInfo {
+            emscripten::val callback;
+            std::vector<zenkit::DaedalusSymbol*> params;
+            zenkit::DaedalusSymbol* sym;
+        };
+        std::unordered_map<std::string, ExternalCallbackInfo> externalCallbacks_;
+        bool defaultExternalHandlerSet_ = false;
+        
+        // Universal external handler that routes to registered callbacks
+        void handleUniversalExternal(zenkit::DaedalusVm& vm, zenkit::DaedalusSymbol& sym);
+        
+        // Helper to push JS return value to VM stack
+        void pushJsReturnValue(zenkit::DaedalusVm& vm, const emscripten::val& result, zenkit::DaedalusDataType returnType);
         
     };
 

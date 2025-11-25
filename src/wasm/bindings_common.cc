@@ -13,6 +13,7 @@
 #include "zenkit/DaedalusScript.hh"
 #include "zenkit/DaedalusVm.hh"
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <map>
 #include <unordered_map>
@@ -1050,7 +1051,13 @@ namespace zenkit::wasm {
             }
             
             // Call the function
-            vm_.unsafe_call(sym);
+            try {
+                vm_.unsafe_call(sym);
+            } catch (const zenkit::DaedalusVmException& e) {
+                return Result<emscripten::val>("VM Exception: " + std::string(e.what()));
+            } catch (const zenkit::DaedalusScriptError& e) {
+                return Result<emscripten::val>("Script Error: " + std::string(e.what()));
+            }
             
             // Get return value if needed
             if (!sym->has_return()) {
@@ -1078,6 +1085,160 @@ namespace zenkit::wasm {
     }
 
 
+    // Helper to convert C++ parameter to JS value based on type
+    emscripten::val cppParamToJs(zenkit::DaedalusVm& vm, zenkit::DaedalusSymbol* paramSym) {
+        zenkit::DaedalusDataType paramType = paramSym->type();
+        if (paramType == zenkit::DaedalusDataType::INT || paramType == zenkit::DaedalusDataType::FUNCTION) {
+            return emscripten::val(vm.pop_int());
+        } else if (paramType == zenkit::DaedalusDataType::FLOAT) {
+            return emscripten::val(vm.pop_float());
+        } else if (paramType == zenkit::DaedalusDataType::STRING) {
+            std::string str = vm.pop_string();
+            return emscripten::val(str);
+        } else if (paramType == zenkit::DaedalusDataType::INSTANCE) {
+            auto instance = vm.pop_instance();
+            return instanceToJs(instance, vm);
+        }
+        // Fallback: pop as reference (for unknown types)
+        (void) vm.pop_reference();
+        return emscripten::val::undefined();
+    }
+    
+    // Helper to push JS return value to VM stack
+    void DaedalusVmWrapper::pushJsReturnValue(zenkit::DaedalusVm& vm, const emscripten::val& result, zenkit::DaedalusDataType returnType) {
+        if (returnType == zenkit::DaedalusDataType::INT || returnType == zenkit::DaedalusDataType::FUNCTION) {
+            if (!result.isUndefined()) {
+                vm.push_int(result.as<int32_t>());
+            } else {
+                vm.push_int(0);
+            }
+        } else if (returnType == zenkit::DaedalusDataType::FLOAT) {
+            if (!result.isUndefined()) {
+                vm.push_float(result.as<float>());
+            } else {
+                vm.push_float(0.0f);
+            }
+        } else if (returnType == zenkit::DaedalusDataType::STRING) {
+            if (!result.isUndefined()) {
+                std::string str = result.as<std::string>();
+                vm.push_string(str);
+            } else {
+                vm.push_string("");
+            }
+        } else if (returnType == zenkit::DaedalusDataType::INSTANCE) {
+            if (!result.isUndefined() && result.hasOwnProperty("symbol_index")) {
+                int32_t idx = result["symbol_index"].as<int32_t>();
+                if (idx >= 0) {
+                    auto* instanceSym = vm.find_symbol_by_index(idx);
+                    if (instanceSym) {
+                        auto instance = getOrCreateInstance(instanceSym);
+                        vm.push_instance(instance);
+                    } else {
+                        vm.push_instance(nullptr);
+                    }
+                } else {
+                    vm.push_instance(nullptr);
+                }
+            } else {
+                vm.push_instance(nullptr);
+            }
+        }
+    }
+
+    void DaedalusVmWrapper::handleUniversalExternal(zenkit::DaedalusVm& vm, zenkit::DaedalusSymbol& sym) {
+        std::string funcName = sym.name();
+        
+        // Try exact match first
+        auto it = externalCallbacks_.find(funcName);
+        
+        // If not found, try case-insensitive lookup (for compatibility)
+        if (it == externalCallbacks_.end()) {
+            for (const auto& pair : externalCallbacks_) {
+                // Case-insensitive comparison
+                std::string registeredName = pair.first;
+                bool match = true;
+                if (registeredName.length() == funcName.length()) {
+                    for (size_t i = 0; i < registeredName.length(); ++i) {
+                        if (std::tolower(registeredName[i]) != std::tolower(funcName[i])) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) {
+                        it = externalCallbacks_.find(registeredName);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (it == externalCallbacks_.end()) {
+            // Not registered - use default handler behavior (pop params, push default return)
+            auto params = vm.find_parameters_for_function(&sym);
+            for (int i = static_cast<int>(params.size()) - 1; i >= 0; --i) {
+                auto* par = params[static_cast<unsigned>(i)];
+                if (par->type() == zenkit::DaedalusDataType::INT) {
+                    (void) vm.pop_int();
+                } else if (par->type() == zenkit::DaedalusDataType::FLOAT) {
+                    (void) vm.pop_float();
+                } else if (par->type() == zenkit::DaedalusDataType::INSTANCE || par->type() == zenkit::DaedalusDataType::STRING) {
+                    (void) vm.pop_reference();
+                }
+            }
+            if (sym.has_return()) {
+                if (sym.rtype() == zenkit::DaedalusDataType::FLOAT) {
+                    vm.push_float(0.0f);
+                } else if (sym.rtype() == zenkit::DaedalusDataType::INT) {
+                    vm.push_int(0);
+                } else if (sym.rtype() == zenkit::DaedalusDataType::STRING) {
+                    vm.push_string("");
+                } else if (sym.rtype() == zenkit::DaedalusDataType::INSTANCE) {
+                    vm.push_instance(nullptr);
+                }
+            }
+            return;
+        }
+        
+        const auto& info = it->second;
+        try {
+            // Pop parameters from stack in reverse order (as they were pushed)
+            std::vector<emscripten::val> jsParams;
+            jsParams.reserve(info.params.size());
+            
+            for (int i = static_cast<int>(info.params.size()) - 1; i >= 0; --i) {
+                auto* paramSym = info.params[static_cast<size_t>(i)];
+                jsParams.push_back(cppParamToJs(vm, paramSym));
+            }
+            
+            // Reverse to get correct order for JS callback
+            std::reverse(jsParams.begin(), jsParams.end());
+            
+            // Call JavaScript callback with converted parameters using apply (universal for any number of params)
+            emscripten::val jsArgs = emscripten::val::array();
+            for (size_t i = 0; i < jsParams.size(); ++i) {
+                jsArgs.call<void>("push", jsParams[i]);
+            }
+            emscripten::val result = info.callback.call<emscripten::val>("apply", emscripten::val::null(), jsArgs);
+            
+            // Handle return value if function has one
+            if (info.sym->has_return()) {
+                pushJsReturnValue(vm, result, info.sym->rtype());
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error in external callback for " << funcName << ": " << e.what() << std::endl;
+            // Push default return value if needed
+            if (info.sym->has_return()) {
+                pushJsReturnValue(vm, emscripten::val::undefined(), info.sym->rtype());
+            }
+        } catch (...) {
+            std::cerr << "Unknown error in external callback for " << funcName << std::endl;
+            // Push default return value if needed
+            if (info.sym->has_return()) {
+                pushJsReturnValue(vm, emscripten::val::undefined(), info.sym->rtype());
+            }
+        }
+    }
+
     Result<bool> DaedalusVmWrapper::registerExternal(const std::string& functionName, const emscripten::val& callback) {
         try {
             auto* sym = vm_.find_symbol_by_name(functionName);
@@ -1092,57 +1253,23 @@ namespace zenkit::wasm {
             // Get parameter types to determine signature
             std::vector<zenkit::DaedalusSymbol*> params = vm_.find_parameters_for_function(sym);
             
-            // For AI_Output: void(instance, instance, string) - most common case
-            if (params.size() == 3 && 
-                params[0]->type() == zenkit::DaedalusDataType::INSTANCE &&
-                params[1]->type() == zenkit::DaedalusDataType::INSTANCE &&
-                params[2]->type() == zenkit::DaedalusDataType::STRING &&
-                !sym->has_return()) {
-                
-                vm_.register_external(functionName, [this, callback, functionName](
-                    std::shared_ptr<zenkit::DaedalusInstance> npc0,
-                    std::shared_ptr<zenkit::DaedalusInstance> npc1,
-                    std::string_view text) {
-                    try {
-                        // Convert instances to JS objects
-                        emscripten::val instance0 = emscripten::val::object();
-                        if (npc0) {
-                            instance0.set("symbol_index", emscripten::val(npc0->symbol_index()));
-                            try {
-                                auto* sym0 = this->vm_.find_symbol_by_index(npc0->symbol_index());
-                                if (sym0) instance0.set("name", emscripten::val(sym0->name()));
-                            } catch (...) {}
-                        } else {
-                            instance0.set("symbol_index", emscripten::val(-1));
-                        }
-                        
-                        emscripten::val instance1 = emscripten::val::object();
-                        if (npc1) {
-                            instance1.set("symbol_index", emscripten::val(npc1->symbol_index()));
-                            try {
-                                auto* sym1 = this->vm_.find_symbol_by_index(npc1->symbol_index());
-                                if (sym1) instance1.set("name", emscripten::val(sym1->name()));
-                            } catch (...) {}
-                        } else {
-                            instance1.set("symbol_index", emscripten::val(-1));
-                        }
-                        
-                        // Call JavaScript callback
-                        callback(instance0, instance1, emscripten::val(std::string(text)));
-                    } catch (const std::exception& e) {
-                        std::cerr << "Error in external callback for " << functionName << ": " << e.what() << std::endl;
-                    } catch (...) {
-                        std::cerr << "Unknown error in external callback for " << functionName << std::endl;
-                    }
+            // Universal approach: Store callback info in member map and use default external handler
+            // to route to the correct callback based on symbol name
+            ExternalCallbackInfo info;
+            info.callback = callback;
+            info.params = params;
+            info.sym = sym;
+            externalCallbacks_[functionName] = info;
+            
+            // Set up default external handler on first registration (if not already set)
+            if (!defaultExternalHandlerSet_) {
+                vm_.register_default_external_custom([this](zenkit::DaedalusVm& vm, zenkit::DaedalusSymbol& sym) {
+                    this->handleUniversalExternal(vm, sym);
                 });
-                
-                return Result<bool>(true);
+                defaultExternalHandlerSet_ = true;
             }
             
-            // For other signatures, we'd need to add more specializations
-            // For now, return an error for unsupported signatures
-            return Result<bool>("Unsupported function signature for " + functionName + 
-                               ". Currently only void(instance, instance, string) is supported.");
+            return Result<bool>(true);
             
         } catch (const std::exception& e) {
             return Result<bool>(e.what());

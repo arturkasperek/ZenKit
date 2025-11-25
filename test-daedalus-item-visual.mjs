@@ -191,6 +191,31 @@ async function testDaedalusItemVisual() {
             console.error(`❌ Error registering AI_Output:`, error);
         }
 
+        // Register INFO_CLEARCHOICES external handler
+        console.log(`\n🔧 Registering INFO_CLEARCHOICES external handler...`);
+        try {
+            // INFO_CLEARCHOICES takes one int parameter: infoInstance (symbol index)
+            // Signature: void(int) - clears all choices from the specified info instance
+            // Based on OpenGothic implementation: info->choices.clear()
+            const infoClearChoicesResult = vm.registerExternal('INFO_CLEARCHOICES', (infoInstance) => {
+                console.log(`🗑️  INFO_CLEARCHOICES: Clearing choices for info instance ${infoInstance}`);
+                // In a real implementation, this would:
+                // 1. Find the info instance by symbol index
+                // 2. Clear its choices array: info->choices.clear()
+                // For this example, we just log it to show it's being called
+            });
+            
+            if (infoClearChoicesResult.success) {
+                console.log(`✅ INFO_CLEARCHOICES handler registered successfully!`);
+            } else {
+                console.log(`⚠️  Failed to register INFO_CLEARCHOICES: ${infoClearChoicesResult.errorMessage}`);
+                console.log(`   Note: This function might have a different signature or name`);
+                console.log(`   Try checking if it's 'info_clearchoices' (lowercase) or 'Info_ClearChoices'`);
+            }
+        } catch (error) {
+            console.error(`❌ Error registering INFO_CLEARCHOICES:`, error);
+        }
+
         // Set up global context variables (self and other) before calling function
         console.log(`\n🔧 Setting up VM context (self and other)...`);
         try {
