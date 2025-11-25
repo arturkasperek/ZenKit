@@ -913,6 +913,15 @@ namespace zenkit::wasm {
         /// \brief Register a default external handler for unregistered external functions
         /// This prevents exceptions when script functions call unregistered externals
         void registerDefaultExternal();
+        
+        /// \brief Set a custom default external handler (called when unimplemented externals are invoked)
+        /// \param callback JavaScript function that receives the external function name
+        /// \return Result indicating success or error
+        /// 
+        /// When the VM calls an external function that hasn't been registered, this callback
+        /// will be invoked with the function name. The VM automatically handles stack cleanup
+        /// and return values, so the callback is just for logging/notification.
+        Result<bool> setDefaultExternalHandler(const emscripten::val& callback);
 
         /// \brief Call a VM function with flexible parameters
         /// \param functionName The name of the function to call

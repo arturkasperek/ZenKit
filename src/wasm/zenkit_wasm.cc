@@ -282,7 +282,8 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
         .function("callFunction", &DaedalusVmWrapper::callFunction)
         .function("registerExternal", &DaedalusVmWrapper::registerExternal)
         .function("setGlobalSelf", &DaedalusVmWrapper::setGlobalSelf)
-        .function("setGlobalOther", &DaedalusVmWrapper::setGlobalOther);
+        .function("setGlobalOther", &DaedalusVmWrapper::setGlobalOther)
+        .function("setDefaultExternalHandler", &DaedalusVmWrapper::setDefaultExternalHandler);
 
     // Factory function for DaedalusVm (takes ownership of script via pointer)
     function("createDaedalusVm", select_overload<std::unique_ptr<DaedalusVmWrapper>(DaedalusScriptWrapper*)>([](DaedalusScriptWrapper* script) {

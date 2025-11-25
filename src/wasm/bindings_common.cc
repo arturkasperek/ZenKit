@@ -639,15 +639,41 @@ namespace zenkit::wasm {
         // Register a default external handler to prevent exceptions from unregistered externals
         // This is essential for script initialization functions that might call externals
         vm_.register_default_external([](zenkit::DaedalusSymbol const& sym) {
-            // Silently ignore unregistered externals to prevent script initialization failures
-            // In a real game engine, these would be implemented, but for our use case (reading values),
-            // we just need to prevent exceptions
+            // Print a friendly message about unimplemented external functions
+            std::cerr << "⚠️  VM: External function '" << sym.name() << "' is not implemented (called but not registered)" << std::endl;
+            // The VM will automatically handle stack cleanup and return default values
         });
     }
     
     void DaedalusVmWrapper::registerDefaultExternal() {
         // This is a no-op now since we register it in the constructor
         // But kept for API compatibility
+    }
+
+    Result<bool> DaedalusVmWrapper::setDefaultExternalHandler(const emscripten::val& callback) {
+        try {
+            std::string callbackType = callback.typeOf().as<std::string>();
+            if (callbackType != "function") {
+                return Result<bool>("Callback must be a function");
+            }
+            
+            vm_.register_default_external([callback](zenkit::DaedalusSymbol const& sym) {
+                try {
+                    // Call JavaScript callback with function name
+                    callback(emscripten::val(sym.name()));
+                } catch (const std::exception& e) {
+                    std::cerr << "Error in default external handler callback: " << e.what() << std::endl;
+                } catch (...) {
+                    std::cerr << "Unknown error in default external handler callback" << std::endl;
+                }
+            });
+            
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            return Result<bool>(e.what());
+        } catch (...) {
+            return Result<bool>("Unknown error setting default external handler");
+        }
     }
 
     bool DaedalusVmWrapper::hasSymbol(const std::string& name) const {
