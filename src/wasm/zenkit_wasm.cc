@@ -237,3 +237,55 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
         return std::make_unique<MorphMeshWrapper>();
     }));
 }
+
+// DaedalusScript and DaedalusVm bindings
+EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
+    using namespace zenkit::wasm;
+    using namespace emscripten;
+
+    // Result types for function calls (BoolResult is already registered in world_bindings.cc)
+    class_<Result<int32_t>>("IntResult")
+        .property("success", &Result<int32_t>::success)
+        .property("data", &Result<int32_t>::data)
+        .property("errorMessage", &Result<int32_t>::error_message);
+
+    class_<Result<std::string>>("StringResult")
+        .property("success", &Result<std::string>::success)
+        .property("data", &Result<std::string>::data)
+        .property("errorMessage", &Result<std::string>::error_message);
+
+    class_<Result<emscripten::val>>("ValResult")
+        .property("success", &Result<emscripten::val>::success)
+        .property("data", &Result<emscripten::val>::data)
+        .property("errorMessage", &Result<emscripten::val>::error_message);
+
+    // DaedalusScript wrapper
+    class_<DaedalusScriptWrapper>("DaedalusScript")
+        .constructor<>()
+        .function("loadFromArray", &DaedalusScriptWrapper::loadFromArray)
+        .function("getLastError", &DaedalusScriptWrapper::getLastError)
+        .property("isLoaded", &DaedalusScriptWrapper::isLoaded)
+        .property("symbolCount", &DaedalusScriptWrapper::getSymbolCount);
+
+    // Factory function for DaedalusScript
+    function("createDaedalusScript", select_overload<std::unique_ptr<DaedalusScriptWrapper>()>([]() {
+        return std::make_unique<DaedalusScriptWrapper>();
+    }));
+
+    // DaedalusVm wrapper (no constructor exposed, use factory function instead)
+    class_<DaedalusVmWrapper>("DaedalusVm")
+        .property("symbolCount", &DaedalusVmWrapper::getSymbolCount)
+        .function("getSymbolString", &DaedalusVmWrapper::getSymbolString)
+        .function("getSymbolInt", &DaedalusVmWrapper::getSymbolInt)
+        .function("getSymbolFloat", &DaedalusVmWrapper::getSymbolFloat)
+        .function("hasSymbol", &DaedalusVmWrapper::hasSymbol)
+        .function("callFunction", &DaedalusVmWrapper::callFunction)
+        .function("registerExternal", &DaedalusVmWrapper::registerExternal)
+        .function("setGlobalSelf", &DaedalusVmWrapper::setGlobalSelf)
+        .function("setGlobalOther", &DaedalusVmWrapper::setGlobalOther);
+
+    // Factory function for DaedalusVm (takes ownership of script via pointer)
+    function("createDaedalusVm", select_overload<std::unique_ptr<DaedalusVmWrapper>(DaedalusScriptWrapper*)>([](DaedalusScriptWrapper* script) {
+        return std::make_unique<DaedalusVmWrapper>(script);
+    }), allow_raw_pointers());
+}

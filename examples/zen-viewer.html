@@ -265,12 +265,126 @@
                 // Initialize Three.js
                 initThreeJS();
                 
+                // Load GOTHIC.DAT script file
+                await loadGothicScript();
+                
                 // Try to load TOTENINSEL.ZEN automatically (contains our TEST_CHEST)
                 tryLoadDefaultFile();
                 
             } catch (error) {
                 updateStatus(`❌ Failed to initialize ZenKit: ${error.message}`, 'error');
                 console.error('ZenKit initialization error:', error);
+            }
+        }
+
+        async function loadGothicScript() {
+            try {
+                updateStatus('📜 Loading GOTHIC.DAT script...', 'loading');
+                
+                const response = await fetch('/public/game-assets/SCRIPTS/_COMPILED/GOTHIC.DAT');
+                if (!response.ok) {
+                    console.warn('GOTHIC.DAT not found, skipping script loading');
+                    return;
+                }
+                
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+                
+                // Create script loader
+                const script = ZenKit.createDaedalusScript();
+                const loadResult = script.loadFromArray(uint8Array);
+                
+                if (!loadResult.success) {
+                    console.warn(`Failed to load GOTHIC.DAT: ${loadResult.error_message}`);
+                    return;
+                }
+                
+                // Get symbol count BEFORE moving script into VM (after move, script will be empty)
+                const symbolCount = script.symbolCount;
+                
+                // Create VM from script (this moves the script, so script is now empty)
+                const vm = ZenKit.createDaedalusVm(script);
+                
+                console.log(`✅ Loaded GOTHIC.DAT script successfully!`);
+                console.log(`   - ${symbolCount} symbols loaded`);
+                console.log(`   - VM initialized with ${vm.symbolCount} symbols`);
+                
+                // Store VM globally for potential future use
+                window.gothicVM = vm;
+                
+                // Example: Look up visual property for ItRw_Addon_FireArrow
+                tryLookupItemVisual(vm, 'ItRw_Addon_FireArrow');
+                
+                updateStatus(`✅ GOTHIC.DAT loaded (${symbolCount} symbols)`, 'success');
+                
+            } catch (error) {
+                console.warn('Failed to load GOTHIC.DAT:', error);
+                // Don't fail the whole initialization if script loading fails
+            }
+        }
+
+        function tryLookupItemVisual(vm, itemInstanceName) {
+            try {
+                // Check if instance exists
+                if (!vm.hasSymbol(itemInstanceName)) {
+                    console.warn(`Instance '${itemInstanceName}' not found in script`);
+                    return;
+                }
+
+                console.log(`🔍 Found instance: ${itemInstanceName}`);
+
+                // Try to get the visual property
+                // The visual property is registered as "C_ITEM.VISUAL" in the script
+                // Try both uppercase and lowercase versions
+                let visualValue = '';
+                let errorOccurred = false;
+                
+                // Wrap in try-catch to handle any exceptions
+                try {
+                    // Try uppercase first (as registered in daedalus.cc)
+                    visualValue = vm.getSymbolString('VISUAL', itemInstanceName);
+                    if (!visualValue || visualValue === '') {
+                        // Try lowercase as fallback
+                        visualValue = vm.getSymbolString('visual', itemInstanceName);
+                    }
+                } catch (error) {
+                    errorOccurred = true;
+                    // Check if it's the mysterious number error
+                    if (typeof error === 'number') {
+                        console.warn(`⚠️ Got numeric error code: ${error} - this might indicate an initialization issue`);
+                        console.log(`   The instance '${itemInstanceName}' might need to be initialized, but initialization failed.`);
+                        console.log(`   This could be because the script initialization function references undefined variables.`);
+                    } else {
+                        console.warn(`Error getting visual:`, error);
+                        console.warn(`Error type:`, typeof error, error.toString());
+                    }
+                }
+                
+                if (visualValue && visualValue !== '') {
+                    console.log(`✅ Item '${itemInstanceName}' visual: "${visualValue}"`);
+                    
+                    // Also try to get other interesting properties
+                    try {
+                        const name = vm.getSymbolString('NAME', itemInstanceName) || vm.getSymbolString('name', itemInstanceName);
+                        if (name) console.log(`   - Name: "${name}"`);
+                    } catch (e) {}
+                    
+                    try {
+                        const value = vm.getSymbolInt('VALUE', itemInstanceName) || vm.getSymbolInt('value', itemInstanceName);
+                        if (value > 0) console.log(`   - Value: ${value}`);
+                    } catch (e) {}
+                    
+                    try {
+                        const damageTotal = vm.getSymbolInt('DAMAGETOTAL', itemInstanceName) || vm.getSymbolInt('damageTotal', itemInstanceName);
+                        if (damageTotal > 0) console.log(`   - Damage: ${damageTotal}`);
+                    } catch (e) {}
+                } else if (!errorOccurred) {
+                    console.warn(`⚠️ Could not retrieve visual for '${itemInstanceName}'`);
+                    console.log(`   The visual property might be empty or the instance needs initialization.`);
+                }
+            } catch (error) {
+                console.warn(`Failed to lookup item visual for '${itemInstanceName}':`, error);
+                console.error('Error details:', error);
             }
         }
 

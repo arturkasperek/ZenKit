@@ -10,9 +10,13 @@
 #include "zenkit/MultiResolutionMesh.hh"
 #include "zenkit/SoftSkinMesh.hh"
 #include "zenkit/vobs/VirtualObject.hh"
+#include "zenkit/DaedalusScript.hh"
+#include "zenkit/DaedalusVm.hh"
 #include <algorithm>
+#include <iostream>
 #include <map>
 #include <unordered_map>
+#include <variant>
 
 namespace zenkit::wasm {
 
@@ -591,6 +595,612 @@ namespace zenkit::wasm {
         } catch (const std::exception& e) {
             last_error_ = e.what();
             return Result<bool>(e.what());
+        }
+    }
+
+    // DaedalusScriptWrapper implementation
+    Result<bool> DaedalusScriptWrapper::loadFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            script_.load(reader.get());
+            
+            // Register common classes as opaque types so we can create DaedalusOpaqueInstance objects
+            // This sets up member offsets without needing registered instance types like IItem
+            // We register the most common classes that are likely to be accessed
+            const char* common_classes[] = {
+                "C_ITEM", "C_NPC", "C_INFO", "C_MISSION", "C_FOCUS", 
+                "C_ITEMREACT", "C_SPELL", "C_MENU", "C_MENU_ITEM"
+            };
+            
+            for (const char* class_name : common_classes) {
+                try {
+                    auto* sym = script_.find_symbol_by_name(class_name);
+                    if (sym != nullptr && sym->type() == zenkit::DaedalusDataType::CLASS) {
+                        script_.register_as_opaque(sym);
+                    }
+                } catch (...) {
+                    // Class might not exist in this script, continue
+                }
+            }
+            
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
+        }
+    }
+
+    // DaedalusVmWrapper implementation
+    DaedalusVmWrapper::DaedalusVmWrapper(DaedalusScriptWrapper* script)
+        : vm_(std::move(script->getScript())) {
+        // Note: Script classes are already registered in DaedalusScriptWrapper::loadFromArray
+        // before the script is moved into the VM
+        
+        // Register a default external handler to prevent exceptions from unregistered externals
+        // This is essential for script initialization functions that might call externals
+        vm_.register_default_external([](zenkit::DaedalusSymbol const& sym) {
+            // Silently ignore unregistered externals to prevent script initialization failures
+            // In a real game engine, these would be implemented, but for our use case (reading values),
+            // we just need to prevent exceptions
+        });
+    }
+    
+    void DaedalusVmWrapper::registerDefaultExternal() {
+        // This is a no-op now since we register it in the constructor
+        // But kept for API compatibility
+    }
+
+    bool DaedalusVmWrapper::hasSymbol(const std::string& name) const {
+        try {
+            auto* sym = vm_.find_symbol_by_name(name);
+            return sym != nullptr;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    size_t DaedalusVmWrapper::getSymbolCount() const {
+        return vm_.symbols().size();
+    }
+
+    // Helper: Get or create an instance for accessing member values
+    std::shared_ptr<zenkit::DaedalusInstance> DaedalusVmWrapper::getOrCreateInstance(zenkit::DaedalusSymbol* instanceSym) {
+        std::shared_ptr<zenkit::DaedalusInstance> instance;
+        try {
+            instance = instanceSym->get_instance();
+        } catch (...) {
+            // Instance might not be initialized yet
+        }
+        
+        if (!instance) {
+            try {
+                instance = vm_.init_opaque_instance(instanceSym);
+            } catch (...) {
+                // init_opaque_instance failed, but instance might still exist
+                // (allocate_instance might have succeeded before the exception)
+                try {
+                    instance = instanceSym->get_instance();
+                } catch (...) {
+                    return nullptr;
+                }
+            }
+        }
+        return instance;
+    }
+
+    // Helper: Find member symbol with case-insensitive fallback
+    zenkit::DaedalusSymbol* DaedalusVmWrapper::findMemberSymbol(zenkit::DaedalusSymbol* instanceSym, const std::string& symbolName) {
+        zenkit::DaedalusSymbol* memberSym = nullptr;
+        
+        // Approach 1: Try qualified name like "C_ITEM.VISUAL" (uppercase, as registered)
+        if (instanceSym->parent() != static_cast<uint32_t>(-1)) {
+            try {
+                auto* parentSym = vm_.find_symbol_by_index(instanceSym->parent());
+                if (parentSym && parentSym->type() == zenkit::DaedalusDataType::CLASS) {
+                    // Try uppercase first (as registered in daedalus.cc)
+                    std::string qualifiedNameUpper = parentSym->name() + "." + symbolName;
+                    std::transform(qualifiedNameUpper.begin(), qualifiedNameUpper.end(), 
+                                  qualifiedNameUpper.begin(), ::toupper);
+                    memberSym = vm_.find_symbol_by_name(qualifiedNameUpper);
+                    
+                    // If not found, try original case
+                    if (!memberSym) {
+                        std::string qualifiedName = parentSym->name() + "." + symbolName;
+                        memberSym = vm_.find_symbol_by_name(qualifiedName);
+                    }
+                }
+            } catch (...) {
+                // Parent lookup failed, continue to next approach
+            }
+        }
+        
+        // Approach 2: Try uppercase member name
+        if (!memberSym) {
+            try {
+                std::string upperName = symbolName;
+                std::transform(upperName.begin(), upperName.end(), upperName.begin(), ::toupper);
+                memberSym = vm_.find_symbol_by_name(upperName);
+            } catch (...) {
+                // Continue to next approach
+            }
+        }
+        
+        // Approach 3: Try original case member name
+        if (!memberSym) {
+            try {
+                memberSym = vm_.find_symbol_by_name(symbolName);
+            } catch (...) {
+                return nullptr;
+            }
+        }
+        
+        return memberSym;
+    }
+
+    std::string DaedalusVmWrapper::getSymbolString(const std::string& symbolName, const std::string& instanceName) {
+        try {
+            if (!instanceName.empty()) {
+                // Looking up an instance member
+                auto* instanceSym = vm_.find_symbol_by_name(instanceName);
+                if (!instanceSym || instanceSym->type() != zenkit::DaedalusDataType::INSTANCE) {
+                    return "";
+                }
+                
+                auto instance = getOrCreateInstance(instanceSym);
+                if (!instance) {
+                    return "";
+                }
+                
+                auto* memberSym = findMemberSymbol(instanceSym, symbolName);
+                if (!memberSym || !memberSym->is_member() || 
+                    memberSym->type() != zenkit::DaedalusDataType::STRING) {
+                    return "";
+                }
+                
+                try {
+                    return memberSym->get_string(0, instance.get());
+                } catch (...) {
+                    return "";
+                }
+            } else {
+                // Looking up a global symbol
+                auto* memberSym = vm_.find_symbol_by_name(symbolName);
+                if (!memberSym || memberSym->type() != zenkit::DaedalusDataType::STRING) {
+                    return "";
+                }
+                try {
+                    return memberSym->get_string();
+                } catch (...) {
+                    return "";
+                }
+            }
+        } catch (...) {
+            return "";
+        }
+    }
+
+    int32_t DaedalusVmWrapper::getSymbolInt(const std::string& symbolName, const std::string& instanceName) {
+        try {
+            if (!instanceName.empty()) {
+                auto* instanceSym = vm_.find_symbol_by_name(instanceName);
+                if (!instanceSym || instanceSym->type() != zenkit::DaedalusDataType::INSTANCE) {
+                    return 0;
+                }
+                
+                auto instance = getOrCreateInstance(instanceSym);
+                if (!instance) {
+                    return 0;
+                }
+                
+                auto* memberSym = findMemberSymbol(instanceSym, symbolName);
+                if (!memberSym || !memberSym->is_member() || 
+                    (memberSym->type() != zenkit::DaedalusDataType::INT && 
+                     memberSym->type() != zenkit::DaedalusDataType::FUNCTION)) {
+                    return 0;
+                }
+                
+                try {
+                    return memberSym->get_int(0, instance.get());
+                } catch (...) {
+                    return 0;
+                }
+            } else {
+                // Looking up a global symbol
+                auto* memberSym = vm_.find_symbol_by_name(symbolName);
+                if (!memberSym || (memberSym->type() != zenkit::DaedalusDataType::INT && 
+                                  memberSym->type() != zenkit::DaedalusDataType::FUNCTION)) {
+                    return 0;
+                }
+                try {
+                    return memberSym->get_int();
+                } catch (...) {
+                    return 0;
+                }
+            }
+        } catch (...) {
+            return 0;
+        }
+    }
+
+    float DaedalusVmWrapper::getSymbolFloat(const std::string& symbolName, const std::string& instanceName) {
+        try {
+            if (!instanceName.empty()) {
+                zenkit::DaedalusSymbol* instanceSym = vm_.find_symbol_by_name(instanceName);
+                if (!instanceSym || instanceSym->type() != zenkit::DaedalusDataType::INSTANCE) {
+                    return 0.0f;
+                }
+                
+                std::shared_ptr<zenkit::DaedalusInstance> instance;
+                try {
+                    instance = instanceSym->get_instance();
+                } catch (...) {
+                    // Instance might not be initialized yet
+                }
+                
+                if (!instance) {
+                    try {
+                        instance = vm_.init_opaque_instance(instanceSym);
+                    } catch (const std::exception& e) {
+                        // Failed to create opaque instance
+                        return 0.0f;
+                    }
+                }
+                
+                if (!instance) {
+                    return 0.0f;
+                }
+
+                zenkit::DaedalusSymbol* memberSym = nullptr;
+                try {
+                    if (instanceSym->parent() != static_cast<uint32_t>(-1)) {
+                        auto* parentSym = vm_.find_symbol_by_index(instanceSym->parent());
+                        if (parentSym && parentSym->type() == zenkit::DaedalusDataType::CLASS) {
+                            std::string qualifiedName = parentSym->name() + "." + symbolName;
+                            memberSym = vm_.find_symbol_by_name(qualifiedName);
+                        }
+                    }
+                } catch (...) {
+                    // Parent lookup failed
+                }
+                
+                if (!memberSym) {
+                    try {
+                        memberSym = vm_.find_symbol_by_name(symbolName);
+                    } catch (...) {
+                        return 0.0f;
+                    }
+                }
+                
+                if (!memberSym || memberSym->type() != zenkit::DaedalusDataType::FLOAT) {
+                    return 0.0f;
+                }
+
+                try {
+                    return memberSym->get_float(0, instance.get());
+                } catch (const std::exception& e) {
+                    return 0.0f;
+                }
+            } else {
+                auto* memberSym = vm_.find_symbol_by_name(symbolName);
+                if (!memberSym || memberSym->type() != zenkit::DaedalusDataType::FLOAT) {
+                    return 0.0f;
+                }
+                try {
+                    return memberSym->get_float();
+                } catch (...) {
+                    return 0.0f;
+                }
+            }
+        } catch (const std::exception& e) {
+            return 0.0f;
+        } catch (...) {
+            return 0.0f;
+        }
+    }
+
+    // ParamValue struct definition
+    struct ParamValue {
+        std::variant<int32_t, float, std::string, std::shared_ptr<zenkit::DaedalusInstance>> value;
+        zenkit::DaedalusDataType type;
+    };
+
+    ParamValue convertJsParam(const emscripten::val& jsVal, zenkit::DaedalusSymbol* paramSym, zenkit::DaedalusVm& vm) {
+        ParamValue result;
+        result.type = paramSym->type();
+        
+        if (paramSym->type() == zenkit::DaedalusDataType::INT || 
+            paramSym->type() == zenkit::DaedalusDataType::FUNCTION) {
+            result.value = jsVal.as<int32_t>();
+        } else if (paramSym->type() == zenkit::DaedalusDataType::FLOAT) {
+            result.value = jsVal.as<float>();
+        } else if (paramSym->type() == zenkit::DaedalusDataType::STRING) {
+            result.value = jsVal.as<std::string>();
+        } else if (paramSym->type() == zenkit::DaedalusDataType::INSTANCE) {
+            std::shared_ptr<zenkit::DaedalusInstance> instance;
+            if (jsVal.hasOwnProperty("symbol_index")) {
+                int32_t idx = jsVal["symbol_index"].as<int32_t>();
+                if (idx >= 0) {
+                    auto* instanceSym = vm.find_symbol_by_index(idx);
+                    if (instanceSym) {
+                        try {
+                            instance = instanceSym->get_instance();
+                        } catch (...) {
+                            try {
+                                instance = vm.init_opaque_instance(instanceSym);
+                            } catch (...) {
+                                try {
+                                    instance = instanceSym->get_instance();
+                                } catch (...) {
+                                    instance = nullptr;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (jsVal.typeOf().as<std::string>() == "string") {
+                std::string name = jsVal.as<std::string>();
+                auto* instanceSym = vm.find_symbol_by_name(name);
+                if (instanceSym && instanceSym->type() == zenkit::DaedalusDataType::INSTANCE) {
+                    try {
+                        instance = instanceSym->get_instance();
+                    } catch (...) {
+                        try {
+                            instance = vm.init_opaque_instance(instanceSym);
+                        } catch (...) {
+                            try {
+                                instance = instanceSym->get_instance();
+                            } catch (...) {
+                                instance = nullptr;
+                            }
+                        }
+                    }
+                }
+            }
+            result.value = instance;
+        }
+        return result;
+    }
+
+    // Helper to convert instance to JS object
+    emscripten::val instanceToJs(std::shared_ptr<zenkit::DaedalusInstance> instance, zenkit::DaedalusVm& vm) {
+        emscripten::val jsResult = emscripten::val::object();
+        if (instance) {
+            jsResult.set("symbol_index", emscripten::val(instance->symbol_index()));
+            try {
+                auto* instanceSym = vm.find_symbol_by_index(instance->symbol_index());
+                if (instanceSym) {
+                    jsResult.set("name", emscripten::val(instanceSym->name()));
+                }
+            } catch (...) {}
+        } else {
+            jsResult.set("symbol_index", emscripten::val(-1));
+        }
+        return jsResult;
+    }
+
+    Result<emscripten::val> DaedalusVmWrapper::callFunction(const std::string& functionName, const emscripten::val& params) {
+        try {
+            auto* sym = vm_.find_symbol_by_name(functionName);
+            if (sym == nullptr) {
+                return Result<emscripten::val>("Function '" + functionName + "' not found");
+            }
+            
+            if (sym->type() != zenkit::DaedalusDataType::FUNCTION) {
+                return Result<emscripten::val>("Symbol '" + functionName + "' is not a function");
+            }
+            
+            // Get function signature
+            std::vector<zenkit::DaedalusSymbol*> paramSyms = vm_.find_parameters_for_function(sym);
+            size_t expectedParamCount = paramSyms.size();
+            size_t providedParamCount = params["length"].as<size_t>();
+            
+            if (providedParamCount != expectedParamCount) {
+                return Result<emscripten::val>("Parameter count mismatch: expected " + 
+                                              std::to_string(expectedParamCount) + ", got " + 
+                                              std::to_string(providedParamCount));
+            }
+            
+            // Convert all parameters
+            std::vector<ParamValue> cppParams;
+            cppParams.reserve(expectedParamCount);
+            for (size_t i = 0; i < expectedParamCount; ++i) {
+                emscripten::val jsVal = params[i];
+                cppParams.push_back(convertJsParam(jsVal, paramSyms[i], vm_));
+            }
+            
+            // Use manual stack manipulation for all cases (most flexible)
+            // Push parameters onto stack in reverse order
+            for (int i = static_cast<int>(cppParams.size()) - 1; i >= 0; --i) {
+                const auto& p = cppParams[i];
+                if (p.type == zenkit::DaedalusDataType::INT || p.type == zenkit::DaedalusDataType::FUNCTION) {
+                    vm_.push_int(std::get<int32_t>(p.value));
+                } else if (p.type == zenkit::DaedalusDataType::FLOAT) {
+                    vm_.push_float(std::get<float>(p.value));
+                } else if (p.type == zenkit::DaedalusDataType::STRING) {
+                    vm_.push_string(std::get<std::string>(p.value));
+                } else if (p.type == zenkit::DaedalusDataType::INSTANCE) {
+                    vm_.push_instance(std::get<std::shared_ptr<zenkit::DaedalusInstance>>(p.value));
+                }
+            }
+            
+            // Call the function
+            vm_.unsafe_call(sym);
+            
+            // Get return value if needed
+            if (!sym->has_return()) {
+                return Result<emscripten::val>(emscripten::val::undefined());
+            } else if (sym->rtype() == zenkit::DaedalusDataType::INT) {
+                int32_t result = vm_.pop_int();
+                return Result<emscripten::val>(emscripten::val(result));
+            } else if (sym->rtype() == zenkit::DaedalusDataType::FLOAT) {
+                float result = vm_.pop_float();
+                return Result<emscripten::val>(emscripten::val(result));
+            } else if (sym->rtype() == zenkit::DaedalusDataType::STRING) {
+                std::string result = vm_.pop_string();
+                return Result<emscripten::val>(emscripten::val(result));
+            } else if (sym->rtype() == zenkit::DaedalusDataType::INSTANCE) {
+                auto result = vm_.pop_instance();
+                return Result<emscripten::val>(instanceToJs(result, vm_));
+            }
+            
+            return Result<emscripten::val>("Unsupported return type");
+        } catch (const std::exception& e) {
+            return Result<emscripten::val>(e.what());
+        } catch (...) {
+            return Result<emscripten::val>("Unknown error calling function " + functionName);
+        }
+    }
+
+
+    Result<bool> DaedalusVmWrapper::registerExternal(const std::string& functionName, const emscripten::val& callback) {
+        try {
+            auto* sym = vm_.find_symbol_by_name(functionName);
+            if (sym == nullptr) {
+                return Result<bool>("External function '" + functionName + "' not found");
+            }
+
+            if (!sym->is_external()) {
+                return Result<bool>("Symbol '" + functionName + "' is not an external function");
+            }
+
+            // Get parameter types to determine signature
+            std::vector<zenkit::DaedalusSymbol*> params = vm_.find_parameters_for_function(sym);
+            
+            // For AI_Output: void(instance, instance, string) - most common case
+            if (params.size() == 3 && 
+                params[0]->type() == zenkit::DaedalusDataType::INSTANCE &&
+                params[1]->type() == zenkit::DaedalusDataType::INSTANCE &&
+                params[2]->type() == zenkit::DaedalusDataType::STRING &&
+                !sym->has_return()) {
+                
+                vm_.register_external(functionName, [this, callback, functionName](
+                    std::shared_ptr<zenkit::DaedalusInstance> npc0,
+                    std::shared_ptr<zenkit::DaedalusInstance> npc1,
+                    std::string_view text) {
+                    try {
+                        // Convert instances to JS objects
+                        emscripten::val instance0 = emscripten::val::object();
+                        if (npc0) {
+                            instance0.set("symbol_index", emscripten::val(npc0->symbol_index()));
+                            try {
+                                auto* sym0 = this->vm_.find_symbol_by_index(npc0->symbol_index());
+                                if (sym0) instance0.set("name", emscripten::val(sym0->name()));
+                            } catch (...) {}
+                        } else {
+                            instance0.set("symbol_index", emscripten::val(-1));
+                        }
+                        
+                        emscripten::val instance1 = emscripten::val::object();
+                        if (npc1) {
+                            instance1.set("symbol_index", emscripten::val(npc1->symbol_index()));
+                            try {
+                                auto* sym1 = this->vm_.find_symbol_by_index(npc1->symbol_index());
+                                if (sym1) instance1.set("name", emscripten::val(sym1->name()));
+                            } catch (...) {}
+                        } else {
+                            instance1.set("symbol_index", emscripten::val(-1));
+                        }
+                        
+                        // Call JavaScript callback
+                        callback(instance0, instance1, emscripten::val(std::string(text)));
+                    } catch (const std::exception& e) {
+                        std::cerr << "Error in external callback for " << functionName << ": " << e.what() << std::endl;
+                    } catch (...) {
+                        std::cerr << "Unknown error in external callback for " << functionName << std::endl;
+                    }
+                });
+                
+                return Result<bool>(true);
+            }
+            
+            // For other signatures, we'd need to add more specializations
+            // For now, return an error for unsupported signatures
+            return Result<bool>("Unsupported function signature for " + functionName + 
+                               ". Currently only void(instance, instance, string) is supported.");
+            
+        } catch (const std::exception& e) {
+            return Result<bool>(e.what());
+        } catch (...) {
+            return Result<bool>("Unknown error registering external function " + functionName);
+        }
+    }
+
+    // Helper function to convert JS instance parameter to C++ instance
+    Result<std::shared_ptr<zenkit::DaedalusInstance>> DaedalusVmWrapper::parseInstanceParameter(const emscripten::val& instanceName) {
+        try {
+            std::shared_ptr<zenkit::DaedalusInstance> instance;
+            
+            // Handle instance name as string or object with symbol_index
+            if (instanceName.typeOf().as<std::string>() == "string") {
+                std::string name = instanceName.as<std::string>();
+                auto* instanceSym = vm_.find_symbol_by_name(name);
+                if (!instanceSym || instanceSym->type() != zenkit::DaedalusDataType::INSTANCE) {
+                    return Result<std::shared_ptr<zenkit::DaedalusInstance>>("Instance '" + name + "' not found or not an instance type");
+                }
+                instance = getOrCreateInstance(instanceSym);
+            } else if (instanceName.hasOwnProperty("symbol_index")) {
+                int32_t idx = instanceName["symbol_index"].as<int32_t>();
+                if (idx >= 0) {
+                    auto* instanceSym = vm_.find_symbol_by_index(idx);
+                    if (instanceSym) {
+                        instance = getOrCreateInstance(instanceSym);
+                    }
+                }
+            } else {
+                return Result<std::shared_ptr<zenkit::DaedalusInstance>>("Invalid instance parameter: expected string or object with symbol_index");
+            }
+            
+            if (!instance) {
+                return Result<std::shared_ptr<zenkit::DaedalusInstance>>("Failed to get or create instance");
+            }
+            
+            return Result<std::shared_ptr<zenkit::DaedalusInstance>>(std::move(instance));
+        } catch (const std::exception& e) {
+            return Result<std::shared_ptr<zenkit::DaedalusInstance>>(e.what());
+        } catch (...) {
+            return Result<std::shared_ptr<zenkit::DaedalusInstance>>("Unknown error parsing instance parameter");
+        }
+    }
+
+    Result<bool> DaedalusVmWrapper::setGlobalSelf(const emscripten::val& instanceName) {
+        try {
+            auto* globalSelfSym = vm_.global_self();
+            if (!globalSelfSym) {
+                return Result<bool>("Global 'self' symbol not found in VM");
+            }
+            
+            auto instanceResult = parseInstanceParameter(instanceName);
+            if (!instanceResult.success) {
+                return Result<bool>(instanceResult.error_message);
+            }
+            
+            globalSelfSym->set_instance(instanceResult.data);
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            return Result<bool>(e.what());
+        } catch (...) {
+            return Result<bool>("Unknown error setting global 'self'");
+        }
+    }
+
+    Result<bool> DaedalusVmWrapper::setGlobalOther(const emscripten::val& instanceName) {
+        try {
+            auto* globalOtherSym = vm_.global_other();
+            if (!globalOtherSym) {
+                return Result<bool>("Global 'other' symbol not found in VM");
+            }
+            
+            auto instanceResult = parseInstanceParameter(instanceName);
+            if (!instanceResult.success) {
+                return Result<bool>(instanceResult.error_message);
+            }
+            
+            globalOtherSym->set_instance(instanceResult.data);
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            return Result<bool>(e.what());
+        } catch (...) {
+            return Result<bool>("Unknown error setting global 'other'");
         }
     }
 

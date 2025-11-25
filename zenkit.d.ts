@@ -18,6 +18,12 @@ declare module '@kolarz3/zenkit' {
     // Morph mesh operations
     createMorphMesh(): MorphMesh;
     
+    // Daedalus script operations
+    createDaedalusScript(): DaedalusScript;
+    
+    // Daedalus VM operations (takes ownership of script)
+    createDaedalusVm(script: DaedalusScript): DaedalusVm;
+    
     // Texture constructor
     Texture: new () => Texture;
   }
@@ -291,6 +297,37 @@ declare module '@kolarz3/zenkit' {
     
     // Get texture as RGBA8 array
     asRgba8(mipLevel: number): Uint8Array | null;
+  }
+
+  export interface DaedalusScript {
+    // Load script from buffer (.DAT format)
+    loadFromArray(buffer: Uint8Array): { success: boolean; error_message?: string };
+    
+    // Get last error message
+    getLastError(): string;
+    
+    // Check if script is loaded
+    isLoaded: boolean;
+    
+    // Get symbol count
+    symbolCount: number;
+  }
+
+  export interface DaedalusVm {
+    // Get symbol count
+    symbolCount: number;
+    
+    // Check if a symbol exists
+    hasSymbol(name: string): boolean;
+    
+    // Get string value from a symbol (for instance members, pass instance symbol name)
+    getSymbolString(symbolName: string, instanceName?: string): string;
+    
+    // Get int value from a symbol (for instance members, pass instance symbol name)
+    getSymbolInt(symbolName: string, instanceName?: string): number;
+    
+    // Get float value from a symbol (for instance members, pass instance symbol name)
+    getSymbolFloat(symbolName: string, instanceName?: string): number;
   }
 
   const zenkit: ZenKit;

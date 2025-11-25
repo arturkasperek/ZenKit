@@ -20,6 +20,9 @@
 #include "zenkit/Texture.hh"
 #include "zenkit/World.hh"
 #include "zenkit/vobs/VirtualObject.hh"
+#include "zenkit/DaedalusScript.hh"
+#include "zenkit/DaedalusVm.hh"
+#include "zenkit/addon/daedalus.hh"
 
 namespace zenkit::wasm {
 
@@ -836,6 +839,145 @@ namespace zenkit::wasm {
     private:
         zenkit::MorphMesh morph_mesh_;
         mutable std::string last_error_;
+    };
+
+    /// \brief Wrapper for DaedalusScript to expose in WASM
+    class DaedalusScriptWrapper {
+    public:
+        DaedalusScriptWrapper() = default;
+        ~DaedalusScriptWrapper() = default;
+
+        // Non-copyable, non-movable (DaedalusScript doesn't support move assignment)
+        DaedalusScriptWrapper(const DaedalusScriptWrapper&) = delete;
+        DaedalusScriptWrapper& operator=(const DaedalusScriptWrapper&) = delete;
+        DaedalusScriptWrapper(DaedalusScriptWrapper&&) = default;
+        DaedalusScriptWrapper& operator=(DaedalusScriptWrapper&&) = delete;
+
+        /// \brief Load script from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Check if script loaded successfully
+        bool isLoaded() const { return script_.symbols().size() > 0; }
+
+        /// \brief Get symbol count
+        size_t getSymbolCount() const { return script_.symbols().size(); }
+
+        /// \brief Get the underlying script
+        zenkit::DaedalusScript& getScript() { return script_; }
+        const zenkit::DaedalusScript& getScript() const { return script_; }
+
+    private:
+        zenkit::DaedalusScript script_;
+        mutable std::string last_error_;
+    };
+
+    // Forward declaration
+    struct ParamValue;
+    
+    /// \brief Wrapper for DaedalusVm to expose in WASM
+    class DaedalusVmWrapper {
+    public:
+        /// \brief Create VM from script wrapper (takes ownership of script's internal script)
+        explicit DaedalusVmWrapper(DaedalusScriptWrapper* script);
+
+        ~DaedalusVmWrapper() = default;
+
+        // Non-copyable, non-movable (DaedalusVm doesn't support move assignment)
+        DaedalusVmWrapper(const DaedalusVmWrapper&) = delete;
+        DaedalusVmWrapper& operator=(const DaedalusVmWrapper&) = delete;
+        DaedalusVmWrapper(DaedalusVmWrapper&&) = default;
+        DaedalusVmWrapper& operator=(DaedalusVmWrapper&&) = delete;
+
+        /// \brief Get the underlying VM
+        zenkit::DaedalusVm& getVm() { return vm_; }
+        const zenkit::DaedalusVm& getVm() const { return vm_; }
+
+        /// \brief Check if a symbol exists (without exposing raw pointer)
+        bool hasSymbol(const std::string& name) const;
+
+        /// \brief Get symbol count
+        size_t getSymbolCount() const;
+
+        /// \brief Get string value from a symbol (for instance members, pass instance symbol name)
+        std::string getSymbolString(const std::string& symbolName, const std::string& instanceName = "");
+
+        /// \brief Get int value from a symbol (for instance members, pass instance symbol name)
+        int32_t getSymbolInt(const std::string& symbolName, const std::string& instanceName = "");
+
+        /// \brief Get float value from a symbol (for instance members, pass instance symbol name)
+        float getSymbolFloat(const std::string& symbolName, const std::string& instanceName = "");
+
+        /// \brief Register a default external handler for unregistered external functions
+        /// This prevents exceptions when script functions call unregistered externals
+        void registerDefaultExternal();
+
+        /// \brief Call a VM function with flexible parameters
+        /// \param functionName The name of the function to call
+        /// \param params JavaScript array of parameters (can be numbers, strings, or instance objects)
+        /// \return Result containing the return value (as emscripten::val) or error
+        /// 
+        /// This method automatically:
+        /// - Inspects the function signature to determine parameter types
+        /// - Converts JavaScript values to appropriate C++ types (int, float, string, instance)
+        /// - Handles void, int, float, string, and instance return types
+        /// - Supports any number of parameters (up to 10)
+        /// 
+        /// Parameter types:
+        /// - Numbers are converted to int or float based on function signature
+        /// - Strings are passed as-is
+        /// - Instance objects should have 'symbol_index' property or be instance name strings
+        /// 
+        /// Return value:
+        /// - Void functions return undefined
+        /// - Int/float functions return numbers
+        /// - String functions return strings
+        /// - Instance functions return objects with 'symbol_index' and 'name' properties
+        Result<emscripten::val> callFunction(const std::string& functionName, const emscripten::val& params);
+
+        /// \brief Register an external function with a JavaScript callback
+        /// \param functionName The name of the external function to register
+        /// \param callback JavaScript function to call when the external is invoked
+        /// \return Result indicating success or error
+        /// 
+        /// The callback will receive parameters based on the function signature:
+        /// - int parameters: passed as numbers
+        /// - float parameters: passed as numbers
+        /// - string parameters: passed as strings
+        /// - instance parameters: passed as objects with symbol_index() method or instance name
+        /// 
+        /// For void functions, callback should return nothing.
+        /// For functions with return values, callback should return the appropriate type.
+        Result<bool> registerExternal(const std::string& functionName, const emscripten::val& callback);
+
+        /// \brief Set the global 'self' variable (var C_NPC self)
+        /// \param instanceName Instance name string or instance object with symbol_index
+        /// \return Result indicating success or error
+        /// 
+        /// Many VM functions use the global 'self' variable to refer to the current NPC.
+        /// This must be set before calling functions that use 'self'.
+        Result<bool> setGlobalSelf(const emscripten::val& instanceName);
+
+        /// \brief Set the global 'other' variable (var C_NPC other)
+        /// \param instanceName Instance name string or instance object with symbol_index
+        /// \return Result indicating success or error
+        /// 
+        /// Many VM functions use the global 'other' variable to refer to another NPC (usually the player).
+        /// This must be set before calling functions that use 'other'.
+        Result<bool> setGlobalOther(const emscripten::val& instanceName);
+
+    private:
+        zenkit::DaedalusVm vm_;
+        
+        // Helper functions for symbol access
+        std::shared_ptr<zenkit::DaedalusInstance> getOrCreateInstance(zenkit::DaedalusSymbol* instanceSym);
+        zenkit::DaedalusSymbol* findMemberSymbol(zenkit::DaedalusSymbol* instanceSym, const std::string& symbolName);
+        
+        // Helper function to parse instance parameter from JavaScript
+        Result<std::shared_ptr<zenkit::DaedalusInstance>> parseInstanceParameter(const emscripten::val& instanceName);
+        
     };
 
 } // namespace zenkit::wasm
