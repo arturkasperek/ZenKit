@@ -289,4 +289,18 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
     function("createDaedalusVm", select_overload<std::unique_ptr<DaedalusVmWrapper>(DaedalusScriptWrapper*)>([](DaedalusScriptWrapper* script) {
         return std::make_unique<DaedalusVmWrapper>(script);
     }), allow_raw_pointers());
+
+    // CutsceneLibrary wrapper
+    class_<CutsceneLibraryWrapper>("CutsceneLibrary")
+        .constructor<>()
+        .function("loadFromArray", &CutsceneLibraryWrapper::loadFromArray)
+        .function("getLastError", &CutsceneLibraryWrapper::getLastError)
+        .property("isLoaded", &CutsceneLibraryWrapper::isLoaded)
+        .property("blockCount", &CutsceneLibraryWrapper::getBlockCount)
+        .function("getBlockByName", &CutsceneLibraryWrapper::getBlockByName);
+
+    // Factory function for CutsceneLibrary
+    function("createCutsceneLibrary", select_overload<std::unique_ptr<CutsceneLibraryWrapper>()>([]() {
+        return std::make_unique<CutsceneLibraryWrapper>();
+    }));
 }

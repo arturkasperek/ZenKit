@@ -24,6 +24,7 @@
 #include "zenkit/DaedalusScript.hh"
 #include "zenkit/DaedalusVm.hh"
 #include "zenkit/addon/daedalus.hh"
+#include "zenkit/CutsceneLibrary.hh"
 
 namespace zenkit::wasm {
 
@@ -1003,6 +1004,44 @@ namespace zenkit::wasm {
         // Helper to push JS return value to VM stack
         void pushJsReturnValue(zenkit::DaedalusVm& vm, const emscripten::val& result, zenkit::DaedalusDataType returnType);
         
+    };
+
+    /// \brief Wrapper for CutsceneLibrary to expose in WASM
+    class CutsceneLibraryWrapper {
+    public:
+        CutsceneLibraryWrapper() = default;
+        ~CutsceneLibraryWrapper() = default;
+
+        // Non-copyable, non-movable
+        CutsceneLibraryWrapper(const CutsceneLibraryWrapper&) = delete;
+        CutsceneLibraryWrapper& operator=(const CutsceneLibraryWrapper&) = delete;
+        CutsceneLibraryWrapper(CutsceneLibraryWrapper&&) = default;
+        CutsceneLibraryWrapper& operator=(CutsceneLibraryWrapper&&) = delete;
+
+        /// \brief Load cutscene library from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array, int game_version = 1);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Check if library loaded successfully
+        bool isLoaded() const { return !library_.blocks.empty(); }
+
+        /// \brief Get block count
+        size_t getBlockCount() const { return library_.blocks.size(); }
+
+        /// \brief Get block by name (output unit name)
+        /// \param name The output unit name (e.g., "DIA_Xardas_FirstEXIT_15_00")
+        /// \return Object with text and name properties, or null if not found
+        emscripten::val getBlockByName(const std::string& name) const;
+
+        /// \brief Get the underlying library
+        zenkit::CutsceneLibrary& getLibrary() { return library_; }
+        const zenkit::CutsceneLibrary& getLibrary() const { return library_; }
+
+    private:
+        zenkit::CutsceneLibrary library_;
+        mutable std::string last_error_;
     };
 
 } // namespace zenkit::wasm

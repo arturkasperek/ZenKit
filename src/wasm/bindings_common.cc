@@ -12,6 +12,8 @@
 #include "zenkit/vobs/VirtualObject.hh"
 #include "zenkit/DaedalusScript.hh"
 #include "zenkit/DaedalusVm.hh"
+#include "zenkit/CutsceneLibrary.hh"
+#include "zenkit/Archive.hh"
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -1449,6 +1451,59 @@ namespace zenkit::wasm {
             return Result<bool>(e.what());
         } catch (...) {
             return Result<bool>("Unknown error setting global 'other'");
+        }
+    }
+
+    // CutsceneLibraryWrapper implementation
+    Result<bool> CutsceneLibraryWrapper::loadFromArray(const emscripten::val& uint8_array, int game_version) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            auto archive = zenkit::ReadArchive::from(reader.get());
+            
+            zenkit::GameVersion version = game_version == 1 
+                ? zenkit::GameVersion::GOTHIC_1 
+                : zenkit::GameVersion::GOTHIC_2;
+            
+            // Read the zCCSLib object from the archive
+            auto lib = archive->read_object<zenkit::CutsceneLibrary>(version);
+            library_ = *lib;
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
+        } catch (...) {
+            last_error_ = "Unknown error loading cutscene library";
+            return Result<bool>(last_error_);
+        }
+    }
+
+    emscripten::val CutsceneLibraryWrapper::getBlockByName(const std::string& name) const {
+        try {
+            auto block = library_.block_by_name(name);
+            if (!block) {
+                return emscripten::val::null();
+            }
+            
+            auto message = block->get_message();
+            if (!message) {
+                return emscripten::val::null();
+            }
+            
+            // Convert Windows-1250 encoded strings to UTF-8 for proper display in JavaScript
+            std::string utf8_text = convertWindows1250ToUtf8(message->text);
+            std::string utf8_name = convertWindows1250ToUtf8(message->name);
+            std::string utf8_blockName = convertWindows1250ToUtf8(block->name);
+            
+            emscripten::val result = emscripten::val::object();
+            result.set("text", emscripten::val(utf8_text));
+            result.set("name", emscripten::val(utf8_name));
+            result.set("blockName", emscripten::val(utf8_blockName));
+            return result;
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return emscripten::val::null();
+        } catch (...) {
+            return emscripten::val::null();
         }
     }
 

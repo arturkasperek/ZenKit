@@ -29,6 +29,7 @@ async function testDaedalusItemVisual() {
         const scriptPath = process.argv[2] || path.join(__dirname, '..', 'public', 'game-assets', 'SCRIPTS', '_COMPILED', 'GOTHIC.DAT');
         const itemInstanceName = process.argv[3] || 'ItRw_Addon_FireArrow';
         const functionName = process.argv[4] || 'dia_xardas_hello_info';
+        const cutsceneLibPath = process.argv[5] || path.join(__dirname, 'public', 'game-assets', 'SCRIPTS', 'CONTENT', 'CUTSCENE', 'Ou.bin');
 
         // Check if script file exists
         if (!fs.existsSync(scriptPath)) {
@@ -38,6 +39,24 @@ async function testDaedalusItemVisual() {
 
         // Load ZenKit WASM module
         const ZenKit = await ZenKitModule();
+
+        // Load cutscene library
+        let cutsceneLib = null;
+        if (fs.existsSync(cutsceneLibPath)) {
+            console.log(`📚 Loading cutscene library: ${cutsceneLibPath}`);
+            const cutsceneBuffer = fs.readFileSync(cutsceneLibPath);
+            const cutsceneArray = new Uint8Array(cutsceneBuffer);
+            cutsceneLib = ZenKit.createCutsceneLibrary();
+            const cutsceneLoadResult = cutsceneLib.loadFromArray(cutsceneArray, 2); // Gothic 2
+            if (cutsceneLoadResult.success) {
+                console.log(`✅ Cutscene library loaded: ${cutsceneLib.blockCount} blocks`);
+            } else {
+                console.warn(`⚠️  Failed to load cutscene library: ${cutsceneLoadResult.error_message}`);
+                cutsceneLib = null;
+            }
+        } else {
+            console.warn(`⚠️  Cutscene library not found: ${cutsceneLibPath}`);
+        }
 
         // Load script file
         const scriptBuffer = fs.readFileSync(scriptPath);
@@ -77,7 +96,23 @@ async function testDaedalusItemVisual() {
         vm.registerExternal('AI_Output', async (npc0, npc1, text) => {
             const npc0Name = npc0.name || `NPC[${npc0.symbol_index}]`;
             const npc1Name = npc1.name || `NPC[${npc1.symbol_index}]`;
-            console.log(`💬 ${npc0Name} -> ${npc1Name}: "${text}"`);
+            
+            // Try to look up dialogue text from cutscene library
+            let dialogueText = text;
+            if (cutsceneLib) {
+                const block = cutsceneLib.getBlockByName(text);
+                if (block !== null && block.text) {
+                    dialogueText = block.text;
+                    const wavName = block.name || text;
+                    console.log(`💬 ${npc0Name} -> ${npc1Name}: "${dialogueText}"`);
+                    console.log(`   📢 Output unit: "${text}" | WAV: "${wavName}"`);
+                } else {
+                    console.log(`💬 ${npc0Name} -> ${npc1Name}: "${text}"`);
+                    console.log(`   ⚠️  Output unit "${text}" not found in cutscene library`);
+                }
+            } else {
+                console.log(`💬 ${npc0Name} -> ${npc1Name}: "${text}"`);
+            }
         });
 
         vm.registerExternal('INFO_CLEARCHOICES', (infoInstance) => {
