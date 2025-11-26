@@ -764,6 +764,38 @@ namespace zenkit::wasm {
         return memberSym;
     }
 
+    // Helper to convert Windows-1250 encoded string to UTF-8
+    std::string convertWindows1250ToUtf8(const std::string& cp1250_str) {
+        // Use JavaScript TextDecoder for conversion via Emscripten
+        // Works in both browser and Node.js environments
+        try {
+            // Create a Uint8Array from the Windows-1250 bytes
+            emscripten::val uint8Array = emscripten::val::global("Uint8Array").new_(cp1250_str.length());
+            for (size_t i = 0; i < cp1250_str.length(); ++i) {
+                uint8Array.set(i, static_cast<unsigned char>(cp1250_str[i]));
+            }
+            
+            // Try to get TextDecoder (works in both browser and Node.js)
+            emscripten::val TextDecoder = emscripten::val::global("TextDecoder");
+            if (TextDecoder.isUndefined()) {
+                // Fallback: try util.TextDecoder for Node.js
+                emscripten::val util = emscripten::val::global("require").call<emscripten::val>("call", emscripten::val::null(), emscripten::val("util"));
+                if (!util.isUndefined()) {
+                    TextDecoder = util["TextDecoder"];
+                }
+            }
+            
+            if (!TextDecoder.isUndefined()) {
+                emscripten::val decoder = TextDecoder.new_(emscripten::val("windows-1250"));
+                emscripten::val utf8_str = decoder.call<emscripten::val>("decode", uint8Array);
+                return utf8_str.as<std::string>();
+            }
+        } catch (...) {
+            // Fallback: return original string if conversion fails
+        }
+        return cp1250_str;
+    }
+
     std::string DaedalusVmWrapper::getSymbolString(const std::string& symbolName, const std::string& instanceName) {
         try {
             if (!instanceName.empty()) {
@@ -785,7 +817,9 @@ namespace zenkit::wasm {
                 }
                 
                 try {
-                    return memberSym->get_string(0, instance.get());
+                    std::string result = memberSym->get_string(0, instance.get());
+                    // Convert Windows-1250 to UTF-8 for proper display in JavaScript
+                    return convertWindows1250ToUtf8(result);
                 } catch (...) {
                     return "";
                 }
@@ -796,7 +830,9 @@ namespace zenkit::wasm {
                     return "";
                 }
                 try {
-                    return memberSym->get_string();
+                    std::string result = memberSym->get_string();
+                    // Convert Windows-1250 to UTF-8 for proper display in JavaScript
+                    return convertWindows1250ToUtf8(result);
                 } catch (...) {
                     return "";
                 }
@@ -1072,7 +1108,9 @@ namespace zenkit::wasm {
                         return Result<emscripten::val>(emscripten::val(result));
                     } else if (sym->rtype() == zenkit::DaedalusDataType::STRING) {
                         std::string result = vm_.pop_string();
-                        return Result<emscripten::val>(emscripten::val(result));
+                        // Convert Windows-1250 to UTF-8 for proper display in JavaScript
+                        std::string utf8_result = convertWindows1250ToUtf8(result);
+                        return Result<emscripten::val>(emscripten::val(utf8_result));
                     } else if (sym->rtype() == zenkit::DaedalusDataType::INSTANCE) {
                         auto result = vm_.pop_instance();
                         return Result<emscripten::val>(instanceToJs(result, vm_));
@@ -1129,7 +1167,9 @@ namespace zenkit::wasm {
             return emscripten::val(vm.pop_float());
         } else if (paramType == zenkit::DaedalusDataType::STRING) {
             std::string str = vm.pop_string();
-            return emscripten::val(str);
+            // Convert Windows-1250 to UTF-8 for proper display in JavaScript
+            std::string utf8_str = convertWindows1250ToUtf8(str);
+            return emscripten::val(utf8_str);
         } else if (paramType == zenkit::DaedalusDataType::INSTANCE) {
             auto instance = vm.pop_instance();
             return instanceToJs(instance, vm);

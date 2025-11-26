@@ -23,8 +23,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 async function testDaedalusItemVisual() {
     try {
         // Get command line arguments
@@ -80,7 +78,6 @@ async function testDaedalusItemVisual() {
             const npc0Name = npc0.name || `NPC[${npc0.symbol_index}]`;
             const npc1Name = npc1.name || `NPC[${npc1.symbol_index}]`;
             console.log(`💬 ${npc0Name} -> ${npc1Name}: "${text}"`);
-            await sleep(1000);
         });
 
         vm.registerExternal('INFO_CLEARCHOICES', (infoInstance) => {
