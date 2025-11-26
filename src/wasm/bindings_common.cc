@@ -1050,40 +1050,75 @@ namespace zenkit::wasm {
                 }
             }
             
-            // Call the function
+            // Call the function and handle return value
             try {
                 vm_.unsafe_call(sym);
+                
+                // Get return value if needed
+                // Note: pop_call() in the VM handles stack cleanup automatically
+                // We only need to pop if the function actually has a return value
+                if (!sym->has_return()) {
+                    // Function is void - no return value to pop
+                    return Result<emscripten::val>(emscripten::val::undefined());
+                }
+                
+                // Function has a return value - pop it from the stack
+                try {
+                    if (sym->rtype() == zenkit::DaedalusDataType::INT) {
+                        int32_t result = vm_.pop_int();
+                        return Result<emscripten::val>(emscripten::val(result));
+                    } else if (sym->rtype() == zenkit::DaedalusDataType::FLOAT) {
+                        float result = vm_.pop_float();
+                        return Result<emscripten::val>(emscripten::val(result));
+                    } else if (sym->rtype() == zenkit::DaedalusDataType::STRING) {
+                        std::string result = vm_.pop_string();
+                        return Result<emscripten::val>(emscripten::val(result));
+                    } else if (sym->rtype() == zenkit::DaedalusDataType::INSTANCE) {
+                        auto result = vm_.pop_instance();
+                        return Result<emscripten::val>(instanceToJs(result, vm_));
+                    }
+                    
+                    return Result<emscripten::val>("Unsupported return type for function '" + functionName + "' (type: " + 
+                                                    std::to_string(static_cast<int>(sym->rtype())) + ")");
+                } catch (const zenkit::DaedalusVmException& e) {
+                    return Result<emscripten::val>("Error reading return value from '" + functionName + "': " + std::string(e.what()));
+                } catch (const zenkit::DaedalusScriptError& e) {
+                    return Result<emscripten::val>("Error reading return value from '" + functionName + "': " + std::string(e.what()));
+                } catch (const std::exception& e) {
+                    return Result<emscripten::val>("Error reading return value from '" + functionName + "': " + std::string(e.what()));
+                }
             } catch (const zenkit::DaedalusVmException& e) {
-                return Result<emscripten::val>("VM Exception: " + std::string(e.what()));
+                return Result<emscripten::val>("VM Exception in '" + functionName + "': " + std::string(e.what()));
             } catch (const zenkit::DaedalusScriptError& e) {
-                return Result<emscripten::val>("Script Error: " + std::string(e.what()));
+                return Result<emscripten::val>("Script Error in '" + functionName + "': " + std::string(e.what()));
+            } catch (const std::exception& e) {
+                return Result<emscripten::val>("Exception in '" + functionName + "': " + std::string(e.what()));
+            } catch (...) {
+                return Result<emscripten::val>("Unknown exception in '" + functionName + "'");
             }
-            
-            // Get return value if needed
-            if (!sym->has_return()) {
-                return Result<emscripten::val>(emscripten::val::undefined());
-            } else if (sym->rtype() == zenkit::DaedalusDataType::INT) {
-                int32_t result = vm_.pop_int();
-                return Result<emscripten::val>(emscripten::val(result));
-            } else if (sym->rtype() == zenkit::DaedalusDataType::FLOAT) {
-                float result = vm_.pop_float();
-                return Result<emscripten::val>(emscripten::val(result));
-            } else if (sym->rtype() == zenkit::DaedalusDataType::STRING) {
-                std::string result = vm_.pop_string();
-                return Result<emscripten::val>(emscripten::val(result));
-            } else if (sym->rtype() == zenkit::DaedalusDataType::INSTANCE) {
-                auto result = vm_.pop_instance();
-                return Result<emscripten::val>(instanceToJs(result, vm_));
-            }
-            
-            return Result<emscripten::val>("Unsupported return type");
+        } catch (const zenkit::DaedalusVmException& e) {
+            return Result<emscripten::val>("VM Exception in '" + functionName + "': " + std::string(e.what()));
+        } catch (const zenkit::DaedalusScriptError& e) {
+            return Result<emscripten::val>("Script Error in '" + functionName + "': " + std::string(e.what()));
         } catch (const std::exception& e) {
-            return Result<emscripten::val>(e.what());
+            return Result<emscripten::val>("Exception in '" + functionName + "': " + std::string(e.what()));
         } catch (...) {
-            return Result<emscripten::val>("Unknown error calling function " + functionName);
+            return Result<emscripten::val>("Unknown error calling function '" + functionName + "'");
         }
     }
 
+
+    // Helper to get type name as string for error messages
+    std::string getTypeName(zenkit::DaedalusDataType type) {
+        switch (type) {
+            case zenkit::DaedalusDataType::INT: return "int";
+            case zenkit::DaedalusDataType::FLOAT: return "float";
+            case zenkit::DaedalusDataType::STRING: return "string";
+            case zenkit::DaedalusDataType::INSTANCE: return "instance";
+            case zenkit::DaedalusDataType::FUNCTION: return "func";
+            default: return "unknown";
+        }
+    }
 
     // Helper to convert C++ parameter to JS value based on type
     emscripten::val cppParamToJs(zenkit::DaedalusVm& vm, zenkit::DaedalusSymbol* paramSym) {
@@ -1173,8 +1208,28 @@ namespace zenkit::wasm {
         }
         
         if (it == externalCallbacks_.end()) {
-            // Not registered - use default handler behavior (pop params, push default return)
+            // Not registered - print helpful error message and use default handler behavior
+            std::cerr << "⚠️  VM: External function '" << funcName << "' is not implemented (called but not registered)" << std::endl;
+            
+            // Get parameter types for better error message
             auto params = vm.find_parameters_for_function(&sym);
+            if (!params.empty()) {
+                std::cerr << "   Signature: ";
+                if (sym.has_return()) {
+                    std::cerr << getTypeName(sym.rtype()) << " ";
+                } else {
+                    std::cerr << "void ";
+                }
+                std::cerr << funcName << "(";
+                for (size_t i = 0; i < params.size(); ++i) {
+                    if (i > 0) std::cerr << ", ";
+                    std::cerr << getTypeName(params[i]->type());
+                }
+                std::cerr << ")" << std::endl;
+            }
+            std::cerr << "   To implement, call: vm.registerExternal('" << funcName << "', callback)" << std::endl;
+            
+            // Pop parameters and push default return value
             for (int i = static_cast<int>(params.size()) - 1; i >= 0; --i) {
                 auto* par = params[static_cast<unsigned>(i)];
                 if (par->type() == zenkit::DaedalusDataType::INT) {

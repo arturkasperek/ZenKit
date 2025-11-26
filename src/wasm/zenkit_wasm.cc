@@ -279,7 +279,7 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
         .function("getSymbolInt", &DaedalusVmWrapper::getSymbolInt)
         .function("getSymbolFloat", &DaedalusVmWrapper::getSymbolFloat)
         .function("hasSymbol", &DaedalusVmWrapper::hasSymbol)
-        .function("callFunction", &DaedalusVmWrapper::callFunction)
+        .function("callFunction", &DaedalusVmWrapper::callFunction, emscripten::allow_raw_pointers())
         .function("registerExternal", &DaedalusVmWrapper::registerExternal)
         .function("setGlobalSelf", &DaedalusVmWrapper::setGlobalSelf)
         .function("setGlobalOther", &DaedalusVmWrapper::setGlobalOther)
