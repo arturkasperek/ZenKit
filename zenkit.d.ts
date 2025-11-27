@@ -44,6 +44,14 @@ declare module '@kolarz3/zenkit' {
     // Get VOBs collection
     getVobs(): VobCollection;
     
+    // Waypoint access
+    getWaypointCount(): number;
+    getWaypoint(index: number): WayPointResult;
+    findWaypointByName(name: string): WayPointResult;
+    getAllWaypoints(): WayPointData[];
+    getWaypointEdgeCount(): number;
+    getWaypointEdge(index: number): WayEdgeResult;
+    
     // World mesh - directly exposes getProcessedMeshData() method
     mesh: {
       getProcessedMeshData(): ProcessedMeshData;
@@ -94,6 +102,32 @@ declare module '@kolarz3/zenkit' {
     
     // Visual name (mesh/model file path)
     name: string;
+  }
+
+  export interface WayPointData {
+    name: string;
+    position: Vector3;
+    direction: Vector3;
+    water_depth: number;
+    under_water: boolean;
+    free_point: boolean;
+  }
+
+  export interface WayEdgeData {
+    waypoint_a_index: number;
+    waypoint_b_index: number;
+  }
+
+  export interface WayPointResult {
+    success: boolean;
+    data: WayPointData;
+    errorMessage?: string;
+  }
+
+  export interface WayEdgeResult {
+    success: boolean;
+    data: WayEdgeData;
+    errorMessage?: string;
   }
 
   export interface Mesh {

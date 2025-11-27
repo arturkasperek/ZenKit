@@ -250,6 +250,26 @@ namespace zenkit::wasm {
             : min(bbox.min), max(bbox.max) {}
     };
 
+    /// \brief Waypoint data for navigation/pathfinding
+    struct WayPointData {
+        std::string name;
+        Vector3 position;
+        Vector3 direction;
+        int32_t water_depth;
+        bool under_water;
+        bool free_point;
+
+        WayPointData() = default;
+    };
+
+    /// \brief Waypoint edge (connection between two waypoints)
+    struct WayEdgeData {
+        uint32_t waypoint_a_index;
+        uint32_t waypoint_b_index;
+
+        WayEdgeData() = default;
+    };
+
     struct RawDataResult {
         std::vector<uint8_t> data;
         size_t position = 0;

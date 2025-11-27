@@ -6,6 +6,7 @@
 #include "zenkit/Error.hh"
 #include "zenkit/Mesh.hh"
 #include "zenkit/world/BspTree.hh"
+#include "zenkit/world/WayNet.hh"
 
 namespace zenkit::wasm {
 
@@ -114,6 +115,78 @@ namespace zenkit::wasm {
             return vobs;
         }
 
+        // Get waypoint count
+        size_t getWaypointCount() const {
+            return world_.world_way_net.waypoints.size();
+        }
+
+        // Get waypoint by index
+        Result<WayPointData> getWaypoint(size_t index) const {
+            if (index >= world_.world_way_net.waypoints.size()) {
+                return Result<WayPointData>("Waypoint index out of range: " + std::to_string(index));
+            }
+            const auto& wp = world_.world_way_net.waypoints[index];
+            WayPointData data;
+            data.name = wp.name;
+            data.position = Vector3{wp.position.x, wp.position.y, wp.position.z};
+            data.direction = Vector3{wp.direction.x, wp.direction.y, wp.direction.z};
+            data.water_depth = wp.water_depth;
+            data.under_water = wp.under_water;
+            data.free_point = wp.free_point;
+            return Result<WayPointData>(std::move(data));
+        }
+
+        // Find waypoint by name
+        Result<WayPointData> findWaypointByName(const std::string& name) const {
+            for (const auto& wp : world_.world_way_net.waypoints) {
+                if (wp.name == name) {
+                    WayPointData data;
+                    data.name = wp.name;
+                    data.position = Vector3{wp.position.x, wp.position.y, wp.position.z};
+                    data.direction = Vector3{wp.direction.x, wp.direction.y, wp.direction.z};
+                    data.water_depth = wp.water_depth;
+                    data.under_water = wp.under_water;
+                    data.free_point = wp.free_point;
+                    return Result<WayPointData>(std::move(data));
+                }
+            }
+            return Result<WayPointData>("Waypoint not found: " + name);
+        }
+
+        // Get all waypoints
+        std::vector<WayPointData> getAllWaypoints() const {
+            std::vector<WayPointData> result;
+            result.reserve(world_.world_way_net.waypoints.size());
+            for (const auto& wp : world_.world_way_net.waypoints) {
+                WayPointData data;
+                data.name = wp.name;
+                data.position = Vector3{wp.position.x, wp.position.y, wp.position.z};
+                data.direction = Vector3{wp.direction.x, wp.direction.y, wp.direction.z};
+                data.water_depth = wp.water_depth;
+                data.under_water = wp.under_water;
+                data.free_point = wp.free_point;
+                result.push_back(std::move(data));
+            }
+            return result;
+        }
+
+        // Get waypoint edge count
+        size_t getWaypointEdgeCount() const {
+            return world_.world_way_net.edges.size();
+        }
+
+        // Get waypoint edge by index
+        Result<WayEdgeData> getWaypointEdge(size_t index) const {
+            if (index >= world_.world_way_net.edges.size()) {
+                return Result<WayEdgeData>("Waypoint edge index out of range: " + std::to_string(index));
+            }
+            const auto& edge = world_.world_way_net.edges[index];
+            WayEdgeData data;
+            data.waypoint_a_index = edge.a;
+            data.waypoint_b_index = edge.b;
+            return Result<WayEdgeData>(std::move(data));
+        }
+
     private:
         World world_;
         std::string last_error_;
@@ -165,6 +238,30 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("center", &OrientedBoundingBoxData::center)
         .field("axes", &OrientedBoundingBoxData::axes)
         .field("half_width", &OrientedBoundingBoxData::half_width);
+
+    // Waypoint data structures
+    value_object<WayPointData>("WayPointData")
+        .field("name", &WayPointData::name)
+        .field("position", &WayPointData::position)
+        .field("direction", &WayPointData::direction)
+        .field("water_depth", &WayPointData::water_depth)
+        .field("under_water", &WayPointData::under_water)
+        .field("free_point", &WayPointData::free_point);
+
+    value_object<WayEdgeData>("WayEdgeData")
+        .field("waypoint_a_index", &WayEdgeData::waypoint_a_index)
+        .field("waypoint_b_index", &WayEdgeData::waypoint_b_index);
+
+    // Result types for waypoint operations
+    class_<Result<WayPointData>>("WayPointResult")
+        .property("success", &Result<WayPointData>::success)
+        .property("data", &Result<WayPointData>::data)
+        .property("errorMessage", &Result<WayPointData>::error_message);
+
+    class_<Result<WayEdgeData>>("WayEdgeResult")
+        .property("success", &Result<WayEdgeData>::success)
+        .property("data", &Result<WayEdgeData>::data)
+        .property("errorMessage", &Result<WayEdgeData>::error_message);
 
     // Model mesh structures
     value_object<zenkit::SubMesh>("SubMesh")
@@ -219,6 +316,7 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
     register_vector<float>("VectorFloat");
     register_vector<MaterialData>("VectorMaterialData");
     register_vector<VobData>("VectorVobData");
+    register_vector<WayPointData>("VectorWayPointData");
 
     // Model mesh vector types
     register_vector<zenkit::SubMesh>("VectorSubMesh");
@@ -286,7 +384,15 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .property("mesh", &WorldWrapper::getMesh, allow_raw_pointers())
         
         // VOBs access
-        .function("getVobs", &WorldWrapper::getVobs);
+        .function("getVobs", &WorldWrapper::getVobs)
+        
+        // Waypoint access
+        .function("getWaypointCount", &WorldWrapper::getWaypointCount)
+        .function("getWaypoint", &WorldWrapper::getWaypoint)
+        .function("findWaypointByName", &WorldWrapper::findWaypointByName)
+        .function("getAllWaypoints", &WorldWrapper::getAllWaypoints)
+        .function("getWaypointEdgeCount", &WorldWrapper::getWaypointEdgeCount)
+        .function("getWaypointEdge", &WorldWrapper::getWaypointEdge);
 
     // Standalone Mesh class for loading mesh files
     class_<StandaloneMeshWrapper>("Mesh")
