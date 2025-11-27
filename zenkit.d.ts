@@ -332,6 +332,13 @@ declare module '@kolarz3/zenkit' {
     // Get float value from a symbol (for instance members, pass instance symbol name)
     getSymbolFloat(symbolName: string, instanceName?: string): number;
     
+    // Get symbol name from symbol index
+    getSymbolNameByIndex(symbolIndex: number): StringResult;
+    
+    // Get instance property value by instance index and property name
+    // Returns the property value (string, number, or instance object) based on property type
+    getInstancePropertyByIndex(instanceIndex: number, propertyName: string): FunctionCallResult;
+    
     // Call a VM function
     // Parameters: function name and array of parameters (numbers, strings, or instance objects)
     // Returns: Result with return value (number, string, instance object, or undefined for void)
@@ -350,6 +357,11 @@ declare module '@kolarz3/zenkit' {
     // Set the global 'other' variable (var C_NPC other)
     // Many VM functions use the global 'other' variable to refer to another NPC (usually the player)
     setGlobalOther(instanceName: string | DaedalusInstance): Result<boolean>;
+    
+    // Initialize an instance by symbol index
+    // This creates and initializes an instance if it doesn't exist.
+    // The instance definition code will be executed, setting all properties.
+    initInstanceByIndex(symbolIndex: number): FunctionCallResult;
     
     // Set a default external handler callback for unregistered external functions
     // The callback receives the function name as a string

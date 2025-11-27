@@ -693,28 +693,14 @@ namespace zenkit::wasm {
     }
 
     // Helper: Get or create an instance for accessing member values
-    std::shared_ptr<zenkit::DaedalusInstance> DaedalusVmWrapper::getOrCreateInstance(zenkit::DaedalusSymbol* instanceSym) {
-        std::shared_ptr<zenkit::DaedalusInstance> instance;
+    std::shared_ptr<zenkit::DaedalusInstance> DaedalusVmWrapper::getInstance(zenkit::DaedalusSymbol* instanceSym) {
         try {
-            instance = instanceSym->get_instance();
+            return instanceSym->get_instance();
         } catch (...) {
-            // Instance might not be initialized yet
+            // Instance not initialized - return nullptr
+            // ZenKit user should ensure instances are initialized before accessing properties
+            return nullptr;
         }
-        
-        if (!instance) {
-            try {
-                instance = vm_.init_opaque_instance(instanceSym);
-            } catch (...) {
-                // init_opaque_instance failed, but instance might still exist
-                // (allocate_instance might have succeeded before the exception)
-                try {
-                    instance = instanceSym->get_instance();
-                } catch (...) {
-                    return nullptr;
-                }
-            }
-        }
-        return instance;
     }
 
     // Helper: Find member symbol with case-insensitive fallback
@@ -807,7 +793,7 @@ namespace zenkit::wasm {
                     return "";
                 }
                 
-                auto instance = getOrCreateInstance(instanceSym);
+                auto instance = getInstance(instanceSym);
                 if (!instance) {
                     return "";
                 }
@@ -852,7 +838,7 @@ namespace zenkit::wasm {
                     return 0;
                 }
                 
-                auto instance = getOrCreateInstance(instanceSym);
+                auto instance = getInstance(instanceSym);
                 if (!instance) {
                     return 0;
                 }
@@ -903,12 +889,9 @@ namespace zenkit::wasm {
                 }
                 
                 if (!instance) {
-                    try {
-                        instance = vm_.init_opaque_instance(instanceSym);
-                    } catch (const std::exception& e) {
-                        // Failed to create opaque instance
-                        return 0.0f;
-                    }
+                    // Instance not initialized - return default value
+                    // ZenKit user should ensure instances are initialized before accessing properties
+                    return 0.0f;
                 }
                 
                 if (!instance) {
@@ -990,15 +973,9 @@ namespace zenkit::wasm {
                         try {
                             instance = instanceSym->get_instance();
                         } catch (...) {
-                            try {
-                                instance = vm.init_opaque_instance(instanceSym);
-                            } catch (...) {
-                                try {
-                                    instance = instanceSym->get_instance();
-                                } catch (...) {
-                                    instance = nullptr;
-                                }
-                            }
+                            // Instance not initialized - return error
+                            // ZenKit user should ensure instances are initialized before use
+                            instance = nullptr;
                         }
                     }
                 }
@@ -1009,15 +986,9 @@ namespace zenkit::wasm {
                     try {
                         instance = instanceSym->get_instance();
                     } catch (...) {
-                        try {
-                            instance = vm.init_opaque_instance(instanceSym);
-                        } catch (...) {
-                            try {
-                                instance = instanceSym->get_instance();
-                            } catch (...) {
-                                instance = nullptr;
-                            }
-                        }
+                        // Instance not initialized - return nullptr
+                        // ZenKit user should ensure instances are initialized before use
+                        instance = nullptr;
                     }
                 }
             }
@@ -1041,6 +1012,97 @@ namespace zenkit::wasm {
             jsResult.set("symbol_index", emscripten::val(-1));
         }
         return jsResult;
+    }
+
+    Result<std::string> DaedalusVmWrapper::getSymbolNameByIndex(int32_t symbolIndex) {
+        try {
+            if (symbolIndex < 0) {
+                return Result<std::string>("Invalid symbol index: " + std::to_string(symbolIndex));
+            }
+            
+            auto* sym = vm_.find_symbol_by_index(static_cast<uint32_t>(symbolIndex));
+            if (!sym) {
+                return Result<std::string>("Symbol not found at index: " + std::to_string(symbolIndex));
+            }
+            
+            // Explicitly construct string to avoid ambiguity with error constructor
+            std::string name = sym->name();
+            return Result<std::string>(std::move(name));
+        } catch (const std::exception& e) {
+            return Result<std::string>("Error getting symbol name: " + std::string(e.what()));
+        } catch (...) {
+            return Result<std::string>("Unknown error getting symbol name");
+        }
+    }
+
+    Result<emscripten::val> DaedalusVmWrapper::getInstancePropertyByIndex(int32_t instanceIndex, const std::string& propertyName) {
+        try {
+            if (instanceIndex < 0) {
+                return Result<emscripten::val>("Invalid instance index: " + std::to_string(instanceIndex));
+            }
+            
+            // Get symbol name from index
+            auto* instanceSym = vm_.find_symbol_by_index(static_cast<uint32_t>(instanceIndex));
+            if (!instanceSym) {
+                return Result<emscripten::val>("Instance not found at index: " + std::to_string(instanceIndex));
+            }
+            
+            if (instanceSym->type() != zenkit::DaedalusDataType::INSTANCE) {
+                return Result<emscripten::val>("Symbol at index " + std::to_string(instanceIndex) + " is not an instance");
+            }
+            
+            std::string instanceName = instanceSym->name();
+            
+            // Try to get the property value based on type
+            auto* memberSym = findMemberSymbol(instanceSym, propertyName);
+            if (!memberSym || !memberSym->is_member()) {
+                return Result<emscripten::val>("Property '" + propertyName + "' not found in instance '" + instanceName + "'");
+            }
+            
+            auto instance = getInstance(instanceSym);
+            if (!instance) {
+                return Result<emscripten::val>("Failed to get or create instance '" + instanceName + "'");
+            }
+            
+            // Get value based on property type
+            if (memberSym->type() == zenkit::DaedalusDataType::STRING) {
+                try {
+                    std::string result = memberSym->get_string(0, instance.get());
+                    std::string utf8_result = convertWindows1250ToUtf8(result);
+                    return Result<emscripten::val>(emscripten::val(utf8_result));
+                } catch (...) {
+                    return Result<emscripten::val>("Error reading string property '" + propertyName + "'");
+                }
+            } else if (memberSym->type() == zenkit::DaedalusDataType::INT || 
+                       memberSym->type() == zenkit::DaedalusDataType::FUNCTION) {
+                try {
+                    int32_t result = memberSym->get_int(0, instance.get());
+                    return Result<emscripten::val>(emscripten::val(result));
+                } catch (...) {
+                    return Result<emscripten::val>("Error reading int property '" + propertyName + "'");
+                }
+            } else if (memberSym->type() == zenkit::DaedalusDataType::FLOAT) {
+                try {
+                    float result = memberSym->get_float(0, instance.get());
+                    return Result<emscripten::val>(emscripten::val(result));
+                } catch (...) {
+                    return Result<emscripten::val>("Error reading float property '" + propertyName + "'");
+                }
+            } else if (memberSym->type() == zenkit::DaedalusDataType::INSTANCE) {
+                // For instance properties, we need to get the instance value
+                // Note: get_instance() doesn't take context, so we'll need to use VM methods
+                // For now, return null instance object
+                emscripten::val nullInstance = emscripten::val::object();
+                nullInstance.set("symbol_index", emscripten::val(-1));
+                return Result<emscripten::val>(std::move(nullInstance));
+            } else {
+                return Result<emscripten::val>("Unsupported property type for '" + propertyName + "'");
+            }
+        } catch (const std::exception& e) {
+            return Result<emscripten::val>("Error getting instance property: " + std::string(e.what()));
+        } catch (...) {
+            return Result<emscripten::val>("Unknown error getting instance property");
+        }
     }
 
     Result<emscripten::val> DaedalusVmWrapper::callFunction(const std::string& functionName, const emscripten::val& params) {
@@ -1208,7 +1270,7 @@ namespace zenkit::wasm {
                 if (idx >= 0) {
                     auto* instanceSym = vm.find_symbol_by_index(idx);
                     if (instanceSym) {
-                        auto instance = getOrCreateInstance(instanceSym);
+                        auto instance = getInstance(instanceSym);
                         vm.push_instance(instance);
                     } else {
                         vm.push_instance(nullptr);
@@ -1387,13 +1449,13 @@ namespace zenkit::wasm {
                 if (!instanceSym || instanceSym->type() != zenkit::DaedalusDataType::INSTANCE) {
                     return Result<std::shared_ptr<zenkit::DaedalusInstance>>("Instance '" + name + "' not found or not an instance type");
                 }
-                instance = getOrCreateInstance(instanceSym);
+                instance = getInstance(instanceSym);
             } else if (instanceName.hasOwnProperty("symbol_index")) {
                 int32_t idx = instanceName["symbol_index"].as<int32_t>();
                 if (idx >= 0) {
                     auto* instanceSym = vm_.find_symbol_by_index(idx);
                     if (instanceSym) {
-                        instance = getOrCreateInstance(instanceSym);
+                        instance = getInstance(instanceSym);
                     }
                 }
             } else {
@@ -1451,6 +1513,49 @@ namespace zenkit::wasm {
             return Result<bool>(e.what());
         } catch (...) {
             return Result<bool>("Unknown error setting global 'other'");
+        }
+    }
+
+    Result<emscripten::val> DaedalusVmWrapper::initInstanceByIndex(int32_t symbolIndex) {
+        try {
+            if (symbolIndex < 0) {
+                return Result<emscripten::val>("Invalid symbol index: " + std::to_string(symbolIndex));
+            }
+            
+            auto* instanceSym = vm_.find_symbol_by_index(static_cast<uint32_t>(symbolIndex));
+            if (!instanceSym) {
+                return Result<emscripten::val>("Symbol not found at index: " + std::to_string(symbolIndex));
+            }
+            
+            if (instanceSym->type() != zenkit::DaedalusDataType::INSTANCE) {
+                return Result<emscripten::val>("Symbol at index " + std::to_string(symbolIndex) + " is not an instance type");
+            }
+            
+            // Check if instance already exists
+            std::shared_ptr<zenkit::DaedalusInstance> instance;
+            try {
+                instance = instanceSym->get_instance();
+            } catch (...) {
+                // Instance doesn't exist, create it
+            }
+            
+            if (!instance) {
+                try {
+                    instance = vm_.init_opaque_instance(instanceSym);
+                } catch (const std::exception& e) {
+                    return Result<emscripten::val>("Failed to initialize instance: " + std::string(e.what()));
+                } catch (...) {
+                    return Result<emscripten::val>("Unknown error initializing instance");
+                }
+            }
+            
+            // Convert instance to JS object
+            emscripten::val jsInstance = instanceToJs(instance, vm_);
+            return Result<emscripten::val>(std::move(jsInstance));
+        } catch (const std::exception& e) {
+            return Result<emscripten::val>("Error initializing instance: " + std::string(e.what()));
+        } catch (...) {
+            return Result<emscripten::val>("Unknown error initializing instance");
         }
     }
 

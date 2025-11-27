@@ -912,6 +912,20 @@ namespace zenkit::wasm {
         /// \brief Get float value from a symbol (for instance members, pass instance symbol name)
         float getSymbolFloat(const std::string& symbolName, const std::string& instanceName = "");
 
+        /// \brief Get symbol name from symbol index
+        /// \param symbolIndex The symbol index
+        /// \return Result containing the symbol name string, or error if index is invalid
+        Result<std::string> getSymbolNameByIndex(int32_t symbolIndex);
+
+        /// \brief Get symbol property value by instance index and property name
+        /// \param instanceIndex The symbol index of the instance
+        /// \param propertyName The name of the property to get
+        /// \return Result containing the property value (as emscripten::val), or error
+        /// 
+        /// This is a convenience function that combines getSymbolNameByIndex with property access.
+        /// It automatically determines the property type and returns the appropriate value.
+        Result<emscripten::val> getInstancePropertyByIndex(int32_t instanceIndex, const std::string& propertyName);
+
         /// \brief Register a default external handler for unregistered external functions
         /// This prevents exceptions when script functions call unregistered externals
         void registerDefaultExternal();
@@ -979,11 +993,21 @@ namespace zenkit::wasm {
         /// This must be set before calling functions that use 'other'.
         Result<bool> setGlobalOther(const emscripten::val& instanceName);
 
+        /// \brief Initialize an instance by symbol index
+        /// \param symbolIndex Symbol index of the instance to initialize
+        /// \return Result containing the initialized instance or error message
+        /// 
+        /// This creates and initializes an instance if it doesn't exist.
+        /// The instance definition code will be executed, setting all properties.
+        Result<emscripten::val> initInstanceByIndex(int32_t symbolIndex);
+
     private:
         zenkit::DaedalusVm vm_;
         
         // Helper functions for symbol access
-        std::shared_ptr<zenkit::DaedalusInstance> getOrCreateInstance(zenkit::DaedalusSymbol* instanceSym);
+        // Get instance if it exists, return nullptr if not initialized
+        // ZenKit user should ensure instances are initialized before accessing properties
+        std::shared_ptr<zenkit::DaedalusInstance> getInstance(zenkit::DaedalusSymbol* instanceSym);
         zenkit::DaedalusSymbol* findMemberSymbol(zenkit::DaedalusSymbol* instanceSym, const std::string& symbolName);
         
         // Helper function to parse instance parameter from JavaScript

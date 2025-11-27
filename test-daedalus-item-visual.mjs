@@ -123,6 +123,168 @@ async function testDaedalusItemVisual() {
             console.log(`➕ Adding choice: "${text}" (func: ${func})`);
         });
 
+        // Register WLD_INSERTNPC to log NPC insertion with details
+        vm.registerExternal('WLD_INSERTNPC', (npcInstanceIndex, spawnpoint) => {
+            if (npcInstanceIndex <= 0) {
+                console.warn(`⚠️  WLD_INSERTNPC: Invalid NPC instance index: ${npcInstanceIndex}`);
+                return;
+            }
+            
+            // Initialize the instance if it doesn't exist
+            // This will execute the instance definition code and set all properties
+            const initResult = vm.initInstanceByIndex(npcInstanceIndex);
+            if (!initResult.success) {
+                console.warn(`⚠️  WLD_INSERTNPC: Failed to initialize instance ${npcInstanceIndex}: ${initResult.errorMessage}`);
+                return;
+            }
+            
+            // Get NPC symbol name from index
+            const nameResult = vm.getSymbolNameByIndex(npcInstanceIndex);
+            let npcInfo = {
+                instanceIndex: npcInstanceIndex,
+                spawnpoint: spawnpoint,
+            };
+            
+            if (nameResult && nameResult.success && nameResult.data) {
+                npcInfo.symbolName = nameResult.data;
+                
+                // Get NPC properties using qualified class names
+                // Properties are now available after initialization
+                const properties = [
+                    { qualified: 'C_NPC.name', type: 'string', key: 'name' },
+                    { qualified: 'C_NPC.id', type: 'int', key: 'id' },
+                    { qualified: 'C_NPC.guild', type: 'int', key: 'guild' },
+                    { qualified: 'C_NPC.level', type: 'int', key: 'level' },
+                    { qualified: 'C_NPC.attribute[ATR_HITPOINTS]', type: 'int', key: 'hp' },
+                    { qualified: 'C_NPC.attribute[ATR_HITPOINTS_MAX]', type: 'int', key: 'hpmax' },
+                ];
+                
+                for (const prop of properties) {
+                    try {
+                        if (prop.type === 'string') {
+                            const value = vm.getSymbolString(prop.qualified, npcInfo.symbolName);
+                            if (value && value.trim() !== '') {
+                                npcInfo[prop.key] = value;
+                            }
+                        } else {
+                            const value = vm.getSymbolInt(prop.qualified, npcInfo.symbolName);
+                            if (value !== undefined && value !== null) {
+                                npcInfo[prop.key] = value;
+                            }
+                        }
+                    } catch (e) {
+                        // Skip failed property access
+                    }
+                }
+            }
+            
+            // Format output
+            const nameStr = npcInfo.symbolName || `NPC[${npcInstanceIndex}]`;
+            const details = [];
+            
+            if (npcInfo.name && npcInfo.name.trim() !== '') {
+                details.push(`Name: "${npcInfo.name}"`);
+            }
+            if (npcInfo.id !== undefined && npcInfo.id !== null) {
+                details.push(`ID: ${npcInfo.id}`);
+            }
+            if (npcInfo.guild !== undefined && npcInfo.guild !== null) {
+                details.push(`Guild: ${npcInfo.guild}`);
+            }
+            if (npcInfo.level !== undefined && npcInfo.level !== null) {
+                details.push(`Level: ${npcInfo.level}`);
+            }
+            if (npcInfo.hp !== undefined && npcInfo.hpmax !== undefined && 
+                (npcInfo.hp !== 0 || npcInfo.hpmax !== 0)) {
+                details.push(`HP: ${npcInfo.hp}/${npcInfo.hpmax}`);
+            }
+            
+            const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
+            console.log(`👤 WLD_INSERTNPC: ${nameStr} at "${spawnpoint}"${detailsStr}`);
+        });
+
+        // Register external functions called during instance initialization
+        const emptyExternals = [
+            'WLD_INSERTITEM',
+            'WLD_SETTIME',
+            'WLD_ASSIGNROOMTOGUILD',
+            'PLAYVIDEO',
+            'CREATEINVITEMS',
+            'CREATEINVITEM',
+            'MDL_SETVISUAL',
+            'MDL_SETVISUALBODY',
+            'MDL_SETMODELSCALE',
+            'MDL_SETMODELFATNESS',
+            'MDL_APPLYOVERLAYMDS',
+            'NPC_SETTALENTSKILL',
+            'NPC_SETTOFISTMODE',
+            'NPC_SETTOFIGHTMODE',
+            'EQUIPITEM',
+        ];
+
+        emptyExternals.forEach(funcName => {
+            if (vm.hasSymbol(funcName)) {
+                try {
+                    vm.registerExternal(funcName, () => {
+                        // Empty implementation
+                    });
+                } catch (error) {
+                    // Function might not be external or already registered, ignore
+                }
+            }
+        });
+        
+        // Additional externals needed for instance initialization
+        const initExternals = [
+            'HLP_RANDOM',               // Random number helper (returns int)
+            'B_SETATTRIBUTESTOCHAPTER', // Set attributes to chapter (void)
+            'B_CREATEAMBIENTINV',       // Create ambient inventory (void)
+            'B_SETNPCVISUAL',           // Set NPC visual (void)
+            'B_GIVENPCTALENTS',         // Give NPC talents (void)
+            'B_SETFIGHTSKILLS',         // Set fight skills (void)
+        ];
+        
+        initExternals.forEach(funcName => {
+            if (vm.hasSymbol(funcName)) {
+                try {
+                    // HLP_RANDOM returns int, others are void
+                    if (funcName === 'HLP_RANDOM') {
+                        vm.registerExternal(funcName, () => Math.floor(Math.random() * 100));
+                    } else {
+                        vm.registerExternal(funcName, () => {
+                            // Empty implementation for void functions
+                        });
+                    }
+                } catch (error) {
+                    // Function might not be external or already registered, ignore
+                }
+            }
+        });
+
+        // Register int-returning externals
+        const intExternals = ['NPC_ISDEAD', 'HLP_ISVALIDNPC'];
+        intExternals.forEach(funcName => {
+            if (vm.hasSymbol(funcName)) {
+                try {
+                    vm.registerExternal(funcName, () => 0);
+                } catch (error) {
+                    // Ignore
+                }
+            }
+        });
+
+        // Register instance-returning externals
+        const instanceExternals = ['HLP_GETNPC'];
+        instanceExternals.forEach(funcName => {
+            if (vm.hasSymbol(funcName)) {
+                try {
+                    vm.registerExternal(funcName, () => ({ symbol_index: -1 }));
+                } catch (error) {
+                    // Ignore
+                }
+            }
+        });
+
         // Set up global context variables (self and other)
         const selfNpcName = 'NONE_100_XARDAS';
         const otherNpcName = 'PC_HERO';
@@ -134,22 +296,48 @@ async function testDaedalusItemVisual() {
             vm.setGlobalOther(otherNpcName);
         }
 
-        // Call VM function
-        if (!vm.hasSymbol(functionName)) {
-            console.error(`❌ Function '${functionName}' not found`);
-            process.exit(1);
-        }
-        
-        try {
-            const callResult = vm.callFunction(functionName, []);
-            if (!callResult.success) {
-                console.error(`❌ Function call failed: ${callResult.errorMessage}`);
+        // Call startup_newworld first
+        const startupFunctionName = 'startup_newworld';
+        if (vm.hasSymbol(startupFunctionName)) {
+            console.log(`\n🚀 Calling startup function: ${startupFunctionName}`);
+            try {
+                const startupResult = vm.callFunction(startupFunctionName, []);
+                if (!startupResult.success) {
+                    console.error(`❌ Startup function call failed: ${startupResult.errorMessage}`);
+                } else {
+                    console.log(`✅ Startup function completed successfully`);
+                }
+            } catch (e) {
+                const errorMsg = typeof e === 'number' 
+                    ? `VM error (code: ${e})` 
+                    : (e instanceof Error ? e.message : String(e));
+                console.error(`❌ Exception calling startup function: ${errorMsg}`);
             }
-        } catch (e) {
-            const errorMsg = typeof e === 'number' 
-                ? `VM error (code: ${e})` 
-                : (e instanceof Error ? e.message : String(e));
-            console.error(`❌ Exception: ${errorMsg}`);
+        } else {
+            console.warn(`⚠️  Startup function '${startupFunctionName}' not found`);
+        }
+
+        // Call requested VM function (if different from startup)
+        if (functionName !== startupFunctionName) {
+            if (!vm.hasSymbol(functionName)) {
+                console.error(`❌ Function '${functionName}' not found`);
+                process.exit(1);
+            }
+            
+            console.log(`\n🔧 Calling function: ${functionName}`);
+            try {
+                const callResult = vm.callFunction(functionName, []);
+                if (!callResult.success) {
+                    console.error(`❌ Function call failed: ${callResult.errorMessage}`);
+                } else {
+                    console.log(`✅ Function call completed successfully`);
+                }
+            } catch (e) {
+                const errorMsg = typeof e === 'number' 
+                    ? `VM error (code: ${e})` 
+                    : (e instanceof Error ? e.message : String(e));
+                console.error(`❌ Exception: ${errorMsg}`);
+            }
         }
 
     } catch (error) {

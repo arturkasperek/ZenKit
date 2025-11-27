@@ -279,10 +279,13 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
         .function("getSymbolInt", &DaedalusVmWrapper::getSymbolInt)
         .function("getSymbolFloat", &DaedalusVmWrapper::getSymbolFloat)
         .function("hasSymbol", &DaedalusVmWrapper::hasSymbol)
+        .function("getSymbolNameByIndex", &DaedalusVmWrapper::getSymbolNameByIndex)
+        .function("getInstancePropertyByIndex", &DaedalusVmWrapper::getInstancePropertyByIndex)
         .function("callFunction", &DaedalusVmWrapper::callFunction, emscripten::allow_raw_pointers())
         .function("registerExternal", &DaedalusVmWrapper::registerExternal)
         .function("setGlobalSelf", &DaedalusVmWrapper::setGlobalSelf)
         .function("setGlobalOther", &DaedalusVmWrapper::setGlobalOther)
+        .function("initInstanceByIndex", &DaedalusVmWrapper::initInstanceByIndex)
         .function("setDefaultExternalHandler", &DaedalusVmWrapper::setDefaultExternalHandler);
 
     // Factory function for DaedalusVm (takes ownership of script via pointer)
