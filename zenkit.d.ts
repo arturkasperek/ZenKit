@@ -24,6 +24,9 @@ declare module '@kolarz3/zenkit' {
     // Daedalus VM operations (takes ownership of script)
     createDaedalusVm(script: DaedalusScript): DaedalusVm;
     
+    // Cutscene library operations
+    createCutsceneLibrary(): CutsceneLibrary;
+    
     // Texture constructor
     Texture: new () => Texture;
   }
@@ -328,6 +331,89 @@ declare module '@kolarz3/zenkit' {
     
     // Get float value from a symbol (for instance members, pass instance symbol name)
     getSymbolFloat(symbolName: string, instanceName?: string): number;
+    
+    // Call a VM function
+    // Parameters: function name and array of parameters (numbers, strings, or instance objects)
+    // Returns: Result with return value (number, string, instance object, or undefined for void)
+    callFunction(functionName: string, params: any[]): FunctionCallResult;
+    
+    // Register an external function with a JavaScript callback
+    // The callback will receive parameters based on the function signature
+    // For void functions, callback should return nothing
+    // For functions with return values, callback should return the appropriate type
+    registerExternal(functionName: string, callback: (...args: any[]) => any): Result<boolean>;
+    
+    // Set the global 'self' variable (var C_NPC self)
+    // Many VM functions use the global 'self' variable to refer to the current NPC
+    setGlobalSelf(instanceName: string | DaedalusInstance): Result<boolean>;
+    
+    // Set the global 'other' variable (var C_NPC other)
+    // Many VM functions use the global 'other' variable to refer to another NPC (usually the player)
+    setGlobalOther(instanceName: string | DaedalusInstance): Result<boolean>;
+    
+    // Set a default external handler callback for unregistered external functions
+    // The callback receives the function name as a string
+    setDefaultExternalHandler(callback: (functionName: string) => void): Result<boolean>;
+  }
+  
+  export interface DaedalusInstance {
+    // Symbol index of the instance
+    symbol_index: number;
+    
+    // Name of the instance (if available)
+    name?: string;
+  }
+  
+  export interface FunctionCallResult {
+    // Whether the function call succeeded
+    success: boolean;
+    
+    // Return value (number, string, instance object, or undefined for void functions)
+    data?: any;
+    
+    // Error message if the call failed
+    errorMessage?: string;
+  }
+  
+  export interface Result<T> {
+    // Whether the operation succeeded
+    success: boolean;
+    
+    // Result data (only present if success is true)
+    data?: T;
+    
+    // Error message (only present if success is false)
+    errorMessage?: string;
+  }
+  
+  export interface CutsceneLibrary {
+    // Load cutscene library from buffer (.BIN format)
+    // gameVersion: 1 for Gothic 1, 2 for Gothic 2
+    loadFromArray(buffer: Uint8Array, gameVersion?: number): Result<boolean>;
+    
+    // Get last error message
+    getLastError(): string | null;
+    
+    // Check if library is loaded
+    isLoaded: boolean;
+    
+    // Get number of blocks in the library
+    blockCount: number;
+    
+    // Get a dialogue block by name
+    // Returns an object with text, name, and blockName properties, or null if not found
+    getBlockByName(name: string): CutsceneBlock | null;
+  }
+  
+  export interface CutsceneBlock {
+    // Dialogue text (Windows-1250 encoded, converted to UTF-8)
+    text: string;
+    
+    // Message name (Windows-1250 encoded, converted to UTF-8)
+    name: string;
+    
+    // Block name (Windows-1250 encoded, converted to UTF-8)
+    blockName: string;
   }
 
   const zenkit: ZenKit;
