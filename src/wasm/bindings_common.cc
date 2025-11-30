@@ -1646,7 +1646,7 @@ namespace zenkit::wasm {
                 return emscripten::val::null();
             }
 
-            size_t sampleIndex = nodeIndex * animation_.frame_count + frameIndex;
+            size_t sampleIndex = frameIndex * animation_.node_count + nodeIndex;
             if (sampleIndex >= animation_.samples.size()) {
                 return emscripten::val::null();
             }

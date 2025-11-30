@@ -883,10 +883,11 @@
                     return animationCache.get(animationName);
                 }
 
-                // Build MAN filename using OpenGothic convention: {MDS_basename}-{animation_name}.MAN
-                // Files are in _COMPILED subdirectory and use uppercase names
-                const manFileName = `${currentMdsBaseName}-${animationName}.MAN`.toUpperCase();
-                const manPath = `/public/game-assets/ANIMS/_COMPILED/${manFileName}`;
+                    // Build MAN filename using OpenGothic convention: {MDS_basename}-{animation_name}.MAN
+                    // We explicitly IGNORE the 'model' (source ASC file) from the MDS, as OpenGothic does.
+                    // See OpenGothic/game/graphics/mesh/animation.cpp: Animation::Animation constructor
+                    const manFileName = `${currentMdsBaseName}-${animationName}.MAN`.toUpperCase();
+                    const manPath = `/public/game-assets/ANIMS/_COMPILED/${manFileName}`;
                 
                 console.log(`🎬 Loading animation: ${manPath}`);
                 updateStatus(`🎬 Loading animation: ${animationName}...`, 'loading');
@@ -1302,6 +1303,9 @@
                     const fps = mds.getAnimationFps(i);
                     const speed = mds.getAnimationSpeed(i);
                     
+                    // Calculate expected MAN filename for display
+                    const manName = `${currentMdsBaseName}-${name}.MAN`.toUpperCase();
+                    
                     animItem.innerHTML = `
                         <h3>🎬 ${name}</h3>
                         <div class="animation-details">
@@ -1310,7 +1314,8 @@
                             <div><span class="info-label">Blend In:</span> <span class="info-value">${blendIn.toFixed(2)}</span></div>
                             <div><span class="info-label">Blend Out:</span> <span class="info-value">${blendOut.toFixed(2)}</span></div>
                             <div><span class="info-label">Flags:</span> <span class="info-value">0x${flags.toString(16)}</span></div>
-                            <div><span class="info-label">Model:</span> <span class="info-value">${model || '(none)'}</span></div>
+                            <div><span class="info-label">Source:</span> <span class="info-value">${model || '(none)'}</span></div>
+                            <div><span class="info-label">Compiled:</span> <span class="info-value">${manName}</span></div>
                             <div><span class="info-label">Frames:</span> <span class="info-value">${firstFrame} - ${lastFrame}</span></div>
                             <div><span class="info-label">FPS:</span> <span class="info-value">${fps.toFixed(2)}</span></div>
                             <div><span class="info-label">Speed:</span> <span class="info-value">${speed.toFixed(2)}</span></div>
