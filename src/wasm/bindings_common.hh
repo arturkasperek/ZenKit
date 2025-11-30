@@ -26,6 +26,7 @@
 #include "zenkit/addon/daedalus.hh"
 #include "zenkit/CutsceneLibrary.hh"
 #include "zenkit/ModelScript.hh"
+#include "zenkit/ModelAnimation.hh"
 
 namespace zenkit::wasm {
 
@@ -1204,6 +1205,64 @@ namespace zenkit::wasm {
 
     private:
         zenkit::ModelScript script_;
+        mutable std::string last_error_;
+    };
+
+    /// \brief Wrapper for ModelAnimation to expose in WASM
+    class ModelAnimationWrapper {
+    public:
+        ModelAnimationWrapper() = default;
+        ~ModelAnimationWrapper() = default;
+
+        ModelAnimationWrapper(const ModelAnimationWrapper&) = delete;
+        ModelAnimationWrapper& operator=(const ModelAnimationWrapper&) = delete;
+        ModelAnimationWrapper(ModelAnimationWrapper&&) = default;
+        ModelAnimationWrapper& operator=(ModelAnimationWrapper&&) = default;
+
+        /// \brief Load model animation from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Get animation name
+        std::string getName() const { return animation_.name; }
+
+        /// \brief Get next animation name
+        std::string getNext() const { return animation_.next; }
+
+        /// \brief Get layer
+        uint32_t getLayer() const { return animation_.layer; }
+
+        /// \brief Get frame count
+        uint32_t getFrameCount() const { return animation_.frame_count; }
+
+        /// \brief Get node count
+        uint32_t getNodeCount() const { return animation_.node_count; }
+
+        /// \brief Get FPS
+        float getFps() const { return animation_.fps; }
+
+        /// \brief Get source FPS
+        float getFpsSource() const { return animation_.fps_source; }
+
+        /// \brief Get sample count
+        size_t getSampleCount() const { return animation_.samples.size(); }
+
+        /// \brief Get sample at index (returns position and rotation)
+        emscripten::val getSample(size_t frameIndex, size_t nodeIndex) const;
+
+        /// \brief Get node index for a given node in the animation
+        uint32_t getNodeIndex(size_t nodeIndex) const {
+            if (nodeIndex >= animation_.node_indices.size()) return 0;
+            return animation_.node_indices[nodeIndex];
+        }
+
+        /// \brief Get the underlying animation
+        const zenkit::ModelAnimation& getAnimation() const { return animation_; }
+
+    private:
+        zenkit::ModelAnimation animation_;
         mutable std::string last_error_;
     };
 

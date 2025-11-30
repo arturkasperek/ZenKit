@@ -335,4 +335,25 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
     function("createModelScript", select_overload<std::unique_ptr<ModelScriptWrapper>()>([]() {
         return std::make_unique<ModelScriptWrapper>();
     }));
+
+    // ModelAnimation wrapper
+    class_<ModelAnimationWrapper>("ModelAnimation")
+        .constructor<>()
+        .function("loadFromArray", &ModelAnimationWrapper::loadFromArray)
+        .function("getLastError", &ModelAnimationWrapper::getLastError)
+        .function("getName", &ModelAnimationWrapper::getName)
+        .function("getNext", &ModelAnimationWrapper::getNext)
+        .function("getLayer", &ModelAnimationWrapper::getLayer)
+        .function("getFrameCount", &ModelAnimationWrapper::getFrameCount)
+        .function("getNodeCount", &ModelAnimationWrapper::getNodeCount)
+        .function("getFps", &ModelAnimationWrapper::getFps)
+        .function("getFpsSource", &ModelAnimationWrapper::getFpsSource)
+        .function("getSampleCount", &ModelAnimationWrapper::getSampleCount)
+        .function("getSample", &ModelAnimationWrapper::getSample)
+        .function("getNodeIndex", &ModelAnimationWrapper::getNodeIndex);
+
+    // Factory function for ModelAnimation
+    function("createModelAnimation", select_overload<std::unique_ptr<ModelAnimationWrapper>()>([]() {
+        return std::make_unique<ModelAnimationWrapper>();
+    }));
 }

@@ -14,6 +14,7 @@
 #include "zenkit/DaedalusVm.hh"
 #include "zenkit/CutsceneLibrary.hh"
 #include "zenkit/ModelScript.hh"
+#include "zenkit/ModelAnimation.hh"
 #include "zenkit/Archive.hh"
 #include <algorithm>
 #include <cctype>
@@ -1623,6 +1624,55 @@ namespace zenkit::wasm {
         } catch (const std::exception& e) {
             last_error_ = e.what();
             return Result<bool>(e.what());
+        }
+    }
+
+    // ModelAnimationWrapper implementation
+    Result<bool> ModelAnimationWrapper::loadFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            animation_.load(reader.get());
+            last_error_.clear();
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
+        }
+    }
+
+    emscripten::val ModelAnimationWrapper::getSample(size_t frameIndex, size_t nodeIndex) const {
+        try {
+            if (nodeIndex >= animation_.node_count || frameIndex >= animation_.frame_count) {
+                return emscripten::val::null();
+            }
+
+            size_t sampleIndex = nodeIndex * animation_.frame_count + frameIndex;
+            if (sampleIndex >= animation_.samples.size()) {
+                return emscripten::val::null();
+            }
+
+            const auto& sample = animation_.samples[sampleIndex];
+            
+            emscripten::val result = emscripten::val::object();
+            
+            // Position
+            emscripten::val pos = emscripten::val::object();
+            pos.set("x", sample.position.x);
+            pos.set("y", sample.position.y);
+            pos.set("z", sample.position.z);
+            result.set("position", pos);
+            
+            // Rotation (quaternion)
+            emscripten::val rot = emscripten::val::object();
+            rot.set("x", sample.rotation.x);
+            rot.set("y", sample.rotation.y);
+            rot.set("z", sample.rotation.z);
+            rot.set("w", sample.rotation.w);
+            result.set("rotation", rot);
+            
+            return result;
+        } catch (const std::exception& e) {
+            return emscripten::val::null();
         }
     }
 

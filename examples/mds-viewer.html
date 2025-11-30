@@ -93,6 +93,17 @@
             margin: 5px 0;
             border-radius: 3px;
             border-left: 3px solid #4a9eff;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .animation-item:hover {
+            background: #252525;
+        }
+
+        .animation-item.active {
+            background: #1a3a4a;
+            border-left-color: #6ac5ff;
         }
 
         .animation-item h3 {
@@ -199,12 +210,18 @@
         let ZenKit = null;
         let scene, camera, renderer;
         let modelMesh = null;
+        let skeleton = null; // Store the skeleton bones
+        let currentAnimation = null; // Current loaded animation
+        let animationStartTime = 0;
+        let isAnimationPlaying = false;
+        let currentMdsBaseName = 'HumanS'; // Store the MDS base name
         
         // Asset caches
         const meshCache = new Map();
         const textureCache = new Map();
         const materialCache = new Map();
         const modelCache = new Map();
+        const animationCache = new Map();
         
         // Camera control variables
         let moveSpeed = 10;
@@ -356,6 +373,12 @@
             // Animation loop for smooth movement
             function animate() {
                 updateMovement();
+                
+                // Update animation
+                if (isAnimationPlaying && currentAnimation && skeleton) {
+                    updateAnimation();
+                }
+                
                 renderer.render(scene, camera);
                 requestAnimationFrame(animate);
             }
@@ -390,6 +413,9 @@
         async function loadMdsFile(mdsFileName = 'HumanS.mds') {
             try {
                 updateStatus('📖 Loading MDS file...', 'loading');
+                
+                // Store the base name for later use with animations
+                currentMdsBaseName = mdsFileName.replace(/\.(MDS|MSB)$/i, '');
                 
                 // Load MDS file from public/game-assets/ANIMS/
                 const response = await fetch(`/public/game-assets/ANIMS/${mdsFileName}`);
@@ -568,6 +594,12 @@
                     }
                 }
 
+                // Get hierarchy to build skeleton
+                const hierarchy = model.getHierarchy();
+                
+                // Build Three.js skeleton from hierarchy
+                skeleton = buildSkeletonFromHierarchy(hierarchy);
+
                 // Check for attachments first
                 const attachmentNames = model.getAttachmentNames();
                 const attachmentCount = attachmentNames.size();
@@ -590,8 +622,12 @@
                     }
                     
                     // Render soft-skin meshes
-                    const hierarchy = model.getHierarchy();
                     const modelGroup = new THREE.Group();
+                    
+                    // Add skeleton helper to the group
+                    if (skeleton) {
+                        modelGroup.add(skeleton);
+                    }
                     
                     // List hierarchy nodes to find head bone
                     const nodeCount = hierarchy.nodes.size ? hierarchy.nodes.size() : hierarchy.nodes.length;
@@ -664,8 +700,12 @@
                     modelMesh = modelGroup;
                 } else {
                     // Render attachments
-                    const hierarchy = model.getHierarchy();
                     const modelGroup = new THREE.Group();
+                    
+                    // Add skeleton helper to the group
+                    if (skeleton) {
+                        modelGroup.add(skeleton);
+                    }
 
                     function getAccumulatedTransform(nodeIndex) {
                         let currentIndex = nodeIndex;
@@ -764,6 +804,213 @@
                 updateStatus(`❌ Failed to render model: ${error.message}`, 'error');
                 console.error('Model rendering error:', error);
             }
+        }
+
+        function buildSkeletonFromHierarchy(hierarchy) {
+            const nodeCount = hierarchy.nodes.size ? hierarchy.nodes.size() : hierarchy.nodes.length;
+            const bones = [];
+            const boneMatrices = [];
+
+            // Create Three.js Bone objects for each node
+            for (let i = 0; i < nodeCount; i++) {
+                const node = hierarchy.nodes.get ? hierarchy.nodes.get(i) : hierarchy.nodes[i];
+                const bone = new THREE.Bone();
+                bone.name = node.name || `Bone_${i}`;
+                bone.userData.nodeIndex = i;
+                bone.userData.parentIndex = node.parentIndex;
+                
+                // Store the initial transform
+                const nodeTransform = node.getTransform();
+                const matrixData = nodeTransform.toArray();
+                const matrix = new THREE.Matrix4();
+                for (let j = 0; j < 16; j++) {
+                    matrix.elements[j] = matrixData[j];
+                }
+                
+                // Decompose matrix into position, rotation, scale
+                const position = new THREE.Vector3();
+                const quaternion = new THREE.Quaternion();
+                const scale = new THREE.Vector3();
+                matrix.decompose(position, quaternion, scale);
+                
+                bone.position.copy(position);
+                bone.quaternion.copy(quaternion);
+                bone.scale.copy(scale);
+                
+                bones.push(bone);
+                boneMatrices.push(matrix.clone());
+            }
+
+            // Build bone hierarchy
+            for (let i = 0; i < bones.length; i++) {
+                const bone = bones[i];
+                const parentIndex = bone.userData.parentIndex;
+                
+                if (parentIndex >= 0 && parentIndex < bones.length) {
+                    bones[parentIndex].add(bone);
+                }
+            }
+
+            // Find root bones (bones with no parent or parent index -1)
+            const rootBones = bones.filter(b => b.userData.parentIndex < 0);
+            
+            // Create a container for the skeleton
+            const skeletonRoot = new THREE.Group();
+            skeletonRoot.name = 'SkeletonRoot';
+            rootBones.forEach(bone => skeletonRoot.add(bone));
+
+            // Store initial bone matrices for reference
+            skeletonRoot.userData.bones = bones;
+            skeletonRoot.userData.initialMatrices = boneMatrices;
+
+            // Create a visual skeleton helper for debugging
+            const threeSkeleton = new THREE.Skeleton(bones);
+            const skeletonHelper = new THREE.SkeletonHelper(skeletonRoot);
+            skeletonHelper.material.linewidth = 2;
+            skeletonHelper.visible = true;
+            skeletonRoot.add(skeletonHelper);
+            skeletonRoot.userData.skeletonHelper = skeletonHelper;
+
+            console.log(`🦴 Created skeleton with ${bones.length} bones, ${rootBones.length} root(s)`);
+            
+            return skeletonRoot;
+        }
+
+        async function loadAnimation(animationName) {
+            try {
+                // Check cache first
+                if (animationCache.has(animationName)) {
+                    return animationCache.get(animationName);
+                }
+
+                // Build MAN filename using OpenGothic convention: {MDS_basename}-{animation_name}.MAN
+                // Files are in _COMPILED subdirectory and use uppercase names
+                const manFileName = `${currentMdsBaseName}-${animationName}.MAN`.toUpperCase();
+                const manPath = `/public/game-assets/ANIMS/_COMPILED/${manFileName}`;
+                
+                console.log(`🎬 Loading animation: ${manPath}`);
+                updateStatus(`🎬 Loading animation: ${animationName}...`, 'loading');
+
+                const response = await fetch(manPath);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch MAN file: ${response.status} ${response.statusText}`);
+                }
+
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                const animation = ZenKit.createModelAnimation();
+                const loadResult = animation.loadFromArray(uint8Array);
+
+                if (!loadResult.success) {
+                    throw new Error(loadResult.errorMessage || animation.getLastError() || 'Unknown loading error');
+                }
+
+                // Cache the animation
+                animationCache.set(animationName, animation);
+                
+                console.log(`✅ Loaded animation: ${animation.getName()}, ${animation.getFrameCount()} frames, ${animation.getFps()} fps`);
+                updateStatus(`✅ Animation loaded: ${animationName}`, 'success');
+
+                return animation;
+            } catch (error) {
+                updateStatus(`❌ Failed to load animation: ${error.message}`, 'error');
+                console.error('Animation loading error:', error);
+                return null;
+            }
+        }
+
+        async function playAnimation(animationName) {
+            try {
+                if (!skeleton) {
+                    console.warn('⚠️ No skeleton loaded, cannot play animation');
+                    return;
+                }
+
+                // Load the animation
+                const animation = await loadAnimation(animationName);
+                if (!animation) {
+                    return;
+                }
+
+                currentAnimation = animation;
+                animationStartTime = Date.now();
+                isAnimationPlaying = true;
+
+                // Update UI to show active animation
+                document.querySelectorAll('.animation-item').forEach(item => {
+                    if (item.dataset.animationName === animationName) {
+                        item.classList.add('active');
+                    } else {
+                        item.classList.remove('active');
+                    }
+                });
+
+                console.log(`▶️ Playing animation: ${animationName}`);
+            } catch (error) {
+                console.error('Error playing animation:', error);
+                updateStatus(`❌ Error playing animation: ${error.message}`, 'error');
+            }
+        }
+
+        function stopAnimation() {
+            isAnimationPlaying = false;
+            currentAnimation = null;
+            
+            // Remove active class from all animations
+            document.querySelectorAll('.animation-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            console.log('⏹️ Animation stopped');
+        }
+
+        function updateAnimation() {
+            if (!currentAnimation || !skeleton) {
+                return;
+            }
+
+            const bones = skeleton.userData.bones;
+            if (!bones) {
+                return;
+            }
+
+            const frameCount = currentAnimation.getFrameCount();
+            const fps = currentAnimation.getFps();
+            const duration = (frameCount / fps) * 1000; // duration in milliseconds
+
+            // Calculate current frame
+            const elapsed = Date.now() - animationStartTime;
+            const normalizedTime = (elapsed % duration) / duration; // 0 to 1, looping
+            const currentFrame = Math.floor(normalizedTime * frameCount);
+
+            // Apply animation samples to bones
+            const nodeCount = currentAnimation.getNodeCount();
+            
+            for (let nodeIdx = 0; nodeIdx < nodeCount; nodeIdx++) {
+                const boneIndex = currentAnimation.getNodeIndex(nodeIdx);
+                
+                if (boneIndex >= 0 && boneIndex < bones.length) {
+                    const bone = bones[boneIndex];
+                    const sample = currentAnimation.getSample(currentFrame, nodeIdx);
+                    
+                    // Check if sample exists and has valid data
+                    if (sample && sample.position && sample.rotation) {
+                        const pos = sample.position;
+                        const rot = sample.rotation;
+                        
+                        // Apply position
+                        bone.position.set(pos.x, pos.y, pos.z);
+                        
+                        // Apply rotation (quaternion)
+                        bone.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+                    }
+                }
+            }
+
+            // Update the skeleton hierarchy
+            // The SkeletonHelper will automatically update when we update the world matrix
+            skeleton.updateMatrixWorld(true);
         }
 
         async function buildThreeJSGeometryAndMaterials(processed) {
@@ -1032,7 +1279,7 @@
                 }
             }
             
-            // Animations
+            // Animations - make them clickable
             const animCount = mds.getAnimationCount();
             const animationsList = document.getElementById('animations-list');
             if (animCount === 0) {
@@ -1056,7 +1303,7 @@
                     const speed = mds.getAnimationSpeed(i);
                     
                     animItem.innerHTML = `
-                        <h3>${name}</h3>
+                        <h3>🎬 ${name}</h3>
                         <div class="animation-details">
                             <div><span class="info-label">Layer:</span> <span class="info-value">${layer}</span></div>
                             <div><span class="info-label">Next:</span> <span class="info-value">${next || '(none)'}</span></div>
@@ -1068,7 +1315,22 @@
                             <div><span class="info-label">FPS:</span> <span class="info-value">${fps.toFixed(2)}</span></div>
                             <div><span class="info-label">Speed:</span> <span class="info-value">${speed.toFixed(2)}</span></div>
                         </div>
+                        <div style="margin-top: 8px; font-size: 0.85em; color: #888;">
+                            💡 Click to play animation
+                        </div>
                     `;
+                    
+                    // Store animation name as data attribute
+                    animItem.dataset.animationName = name;
+                    
+                    // Add click handler to play animation
+                    animItem.addEventListener('click', () => {
+                        if (animItem.classList.contains('active')) {
+                            stopAnimation();
+                        } else {
+                            playAnimation(name);
+                        }
+                    });
                     
                     animationsList.appendChild(animItem);
                 }
