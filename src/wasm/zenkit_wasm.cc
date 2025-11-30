@@ -306,4 +306,33 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
     function("createCutsceneLibrary", select_overload<std::unique_ptr<CutsceneLibraryWrapper>()>([]() {
         return std::make_unique<CutsceneLibraryWrapper>();
     }));
+
+    // ModelScript wrapper
+    class_<ModelScriptWrapper>("ModelScript")
+        .constructor<>()
+        .function("loadFromArray", &ModelScriptWrapper::loadFromArray)
+        .function("getLastError", &ModelScriptWrapper::getLastError)
+        .function("getSkeletonName", &ModelScriptWrapper::getSkeletonName)
+        .function("isSkeletonMeshDisabled", &ModelScriptWrapper::isSkeletonMeshDisabled)
+        .function("getMeshCount", &ModelScriptWrapper::getMeshCount)
+        .function("getMeshName", &ModelScriptWrapper::getMeshName)
+        .function("getDisabledAnimationCount", &ModelScriptWrapper::getDisabledAnimationCount)
+        .function("getDisabledAnimationName", &ModelScriptWrapper::getDisabledAnimationName)
+        .function("getAnimationCount", &ModelScriptWrapper::getAnimationCount)
+        .function("getAnimationName", &ModelScriptWrapper::getAnimationName)
+        .function("getAnimationLayer", &ModelScriptWrapper::getAnimationLayer)
+        .function("getAnimationNext", &ModelScriptWrapper::getAnimationNext)
+        .function("getAnimationBlendIn", &ModelScriptWrapper::getAnimationBlendIn)
+        .function("getAnimationBlendOut", &ModelScriptWrapper::getAnimationBlendOut)
+        .function("getAnimationFlags", &ModelScriptWrapper::getAnimationFlags)
+        .function("getAnimationModel", &ModelScriptWrapper::getAnimationModel)
+        .function("getAnimationFirstFrame", &ModelScriptWrapper::getAnimationFirstFrame)
+        .function("getAnimationLastFrame", &ModelScriptWrapper::getAnimationLastFrame)
+        .function("getAnimationFps", &ModelScriptWrapper::getAnimationFps)
+        .function("getAnimationSpeed", &ModelScriptWrapper::getAnimationSpeed);
+
+    // Factory function for ModelScript
+    function("createModelScript", select_overload<std::unique_ptr<ModelScriptWrapper>()>([]() {
+        return std::make_unique<ModelScriptWrapper>();
+    }));
 }

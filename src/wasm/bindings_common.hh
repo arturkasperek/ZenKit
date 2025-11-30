@@ -25,6 +25,7 @@
 #include "zenkit/DaedalusVm.hh"
 #include "zenkit/addon/daedalus.hh"
 #include "zenkit/CutsceneLibrary.hh"
+#include "zenkit/ModelScript.hh"
 
 namespace zenkit::wasm {
 
@@ -1085,6 +1086,124 @@ namespace zenkit::wasm {
 
     private:
         zenkit::CutsceneLibrary library_;
+        mutable std::string last_error_;
+    };
+
+    /// \brief Wrapper for ModelScript to expose in WASM
+    class ModelScriptWrapper {
+    public:
+        ModelScriptWrapper() = default;
+        ~ModelScriptWrapper() = default;
+
+        ModelScriptWrapper(const ModelScriptWrapper&) = delete;
+        ModelScriptWrapper& operator=(const ModelScriptWrapper&) = delete;
+        ModelScriptWrapper(ModelScriptWrapper&&) = default;
+        ModelScriptWrapper& operator=(ModelScriptWrapper&&) = default;
+
+        /// \brief Load model script from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Get skeleton name
+        std::string getSkeletonName() const { return script_.skeleton.name; }
+
+        /// \brief Check if skeleton mesh is disabled
+        bool isSkeletonMeshDisabled() const { return script_.skeleton.disable_mesh; }
+
+        /// \brief Get mesh count
+        size_t getMeshCount() const { return script_.meshes.size(); }
+
+        /// \brief Get mesh name at index
+        std::string getMeshName(size_t index) const {
+            if (index >= script_.meshes.size()) return "";
+            return script_.meshes[index];
+        }
+
+        /// \brief Get disabled animation count
+        size_t getDisabledAnimationCount() const { return script_.disabled_animations.size(); }
+
+        /// \brief Get disabled animation name at index
+        std::string getDisabledAnimationName(size_t index) const {
+            if (index >= script_.disabled_animations.size()) return "";
+            return script_.disabled_animations[index];
+        }
+
+        /// \brief Get animation count
+        size_t getAnimationCount() const { return script_.animations.size(); }
+
+        /// \brief Get animation name at index
+        std::string getAnimationName(size_t index) const {
+            if (index >= script_.animations.size()) return "";
+            return script_.animations[index].name;
+        }
+
+        /// \brief Get animation layer at index
+        uint32_t getAnimationLayer(size_t index) const {
+            if (index >= script_.animations.size()) return 0;
+            return script_.animations[index].layer;
+        }
+
+        /// \brief Get animation next name at index
+        std::string getAnimationNext(size_t index) const {
+            if (index >= script_.animations.size()) return "";
+            return script_.animations[index].next;
+        }
+
+        /// \brief Get animation blend in at index
+        float getAnimationBlendIn(size_t index) const {
+            if (index >= script_.animations.size()) return 0.0f;
+            return script_.animations[index].blend_in;
+        }
+
+        /// \brief Get animation blend out at index
+        float getAnimationBlendOut(size_t index) const {
+            if (index >= script_.animations.size()) return 0.0f;
+            return script_.animations[index].blend_out;
+        }
+
+        /// \brief Get animation flags at index
+        uint8_t getAnimationFlags(size_t index) const {
+            if (index >= script_.animations.size()) return 0;
+            return static_cast<uint8_t>(script_.animations[index].flags);
+        }
+
+        /// \brief Get animation model at index
+        std::string getAnimationModel(size_t index) const {
+            if (index >= script_.animations.size()) return "";
+            return script_.animations[index].model;
+        }
+
+        /// \brief Get animation first frame at index
+        int32_t getAnimationFirstFrame(size_t index) const {
+            if (index >= script_.animations.size()) return 0;
+            return script_.animations[index].first_frame;
+        }
+
+        /// \brief Get animation last frame at index
+        int32_t getAnimationLastFrame(size_t index) const {
+            if (index >= script_.animations.size()) return 0;
+            return script_.animations[index].last_frame;
+        }
+
+        /// \brief Get animation FPS at index
+        float getAnimationFps(size_t index) const {
+            if (index >= script_.animations.size()) return 0.0f;
+            return script_.animations[index].fps;
+        }
+
+        /// \brief Get animation speed at index
+        float getAnimationSpeed(size_t index) const {
+            if (index >= script_.animations.size()) return 0.0f;
+            return script_.animations[index].speed;
+        }
+
+        /// \brief Get the underlying model script
+        const zenkit::ModelScript& getScript() const { return script_; }
+
+    private:
+        zenkit::ModelScript script_;
         mutable std::string last_error_;
     };
 

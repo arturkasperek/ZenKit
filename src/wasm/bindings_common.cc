@@ -13,6 +13,7 @@
 #include "zenkit/DaedalusScript.hh"
 #include "zenkit/DaedalusVm.hh"
 #include "zenkit/CutsceneLibrary.hh"
+#include "zenkit/ModelScript.hh"
 #include "zenkit/Archive.hh"
 #include <algorithm>
 #include <cctype>
@@ -1609,6 +1610,19 @@ namespace zenkit::wasm {
             return emscripten::val::null();
         } catch (...) {
             return emscripten::val::null();
+        }
+    }
+
+    // ModelScriptWrapper implementation
+    Result<bool> ModelScriptWrapper::loadFromArray(const emscripten::val& uint8_array) {
+        try {
+            auto reader = create_reader_from_js_array(uint8_array);
+            script_.load(reader.get());
+            last_error_.clear();
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            last_error_ = e.what();
+            return Result<bool>(e.what());
         }
     }
 
