@@ -215,6 +215,8 @@
         let animationStartTime = 0;
         let isAnimationPlaying = false;
         let currentMdsBaseName = 'HumanS'; // Store the MDS base name
+        const ROOT_BONE_ROTATION_OFFSET = new THREE.Quaternion().setFromEuler(new THREE.Euler(-90 * Math.PI / 180, 0, 90 * Math.PI / 180));
+        let rootBonePositionOffsets = new Map();
         
         // Asset caches
         const meshCache = new Map();
@@ -934,6 +936,30 @@
                     return;
                 }
 
+                rootBonePositionOffsets.clear();
+                const bones = skeleton.userData.bones;
+                if (bones) {
+                    const nodeCount = animation.getNodeCount();
+                    for (let nodeIdx = 0; nodeIdx < nodeCount; nodeIdx++) {
+                        const boneIndex = animation.getNodeIndex(nodeIdx);
+                        if (boneIndex >= 0 && boneIndex < bones.length) {
+                            const bone = bones[boneIndex];
+                            if (bone.userData.parentIndex < 0) {
+                                const firstFrameSample = animation.getSample(0, nodeIdx);
+                                if (firstFrameSample && firstFrameSample.position) {
+                                    const initialPos = bone.position.clone();
+                                    const offset = {
+                                        x: firstFrameSample.position.x - initialPos.x,
+                                        y: firstFrameSample.position.y - initialPos.y,
+                                        z: firstFrameSample.position.z - initialPos.z
+                                    };
+                                    rootBonePositionOffsets.set(boneIndex, offset);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 currentAnimation = animation;
                 animationStartTime = Date.now();
                 isAnimationPlaying = true;
@@ -957,6 +983,7 @@
         function stopAnimation() {
             isAnimationPlaying = false;
             currentAnimation = null;
+            rootBonePositionOffsets.clear();
             
             // Remove active class from all animations
             document.querySelectorAll('.animation-item').forEach(item => {
@@ -1001,10 +1028,18 @@
                         const rot = sample.rotation;
                         
                         // Apply position
-                        bone.position.set(pos.x, pos.y, pos.z);
+                        if (bone.userData.parentIndex < 0 && rootBonePositionOffsets.has(boneIndex)) {
+                            const offset = rootBonePositionOffsets.get(boneIndex);
+                            bone.position.set(pos.x - offset.x, pos.y - offset.y, pos.z - offset.z);
+                        } else {
+                            bone.position.set(pos.x, pos.y, pos.z);
+                        }
                         
                         // Apply rotation (quaternion)
                         bone.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+                        if (bone.userData.parentIndex < 0) {
+                            bone.quaternion.multiply(ROOT_BONE_ROTATION_OFFSET);
+                        }
                     }
                 }
             }
