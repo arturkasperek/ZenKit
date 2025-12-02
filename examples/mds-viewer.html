@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -150,11 +151,12 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="viewer-container">
             <canvas id="threejs-canvas"></canvas>
-            
+
             <div id="status" class="controls-info">
                 <div><strong>Loading Status:</strong></div>
                 <div>Initializing ZenKit...</div>
@@ -173,32 +175,32 @@
             <h1>ZenKit MDS Viewer</h1>
 
             <div id="content" style="display: none;">
-            <div class="info-section">
-                <h2>Skeleton Information</h2>
-                <div class="info-item">
-                    <span class="info-label">Name:</span>
-                    <span class="info-value" id="skeleton-name">-</span>
+                <div class="info-section">
+                    <h2>Skeleton Information</h2>
+                    <div class="info-item">
+                        <span class="info-label">Name:</span>
+                        <span class="info-value" id="skeleton-name">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Mesh Disabled:</span>
+                        <span class="info-value" id="skeleton-mesh-disabled">-</span>
+                    </div>
                 </div>
-                <div class="info-item">
-                    <span class="info-label">Mesh Disabled:</span>
-                    <span class="info-value" id="skeleton-mesh-disabled">-</span>
+
+                <div class="info-section">
+                    <h2>Meshes</h2>
+                    <div id="meshes-list"></div>
                 </div>
-            </div>
 
-            <div class="info-section">
-                <h2>Meshes</h2>
-                <div id="meshes-list"></div>
-            </div>
+                <div class="info-section">
+                    <h2>Disabled Animations</h2>
+                    <div id="disabled-animations-list"></div>
+                </div>
 
-            <div class="info-section">
-                <h2>Disabled Animations</h2>
-                <div id="disabled-animations-list"></div>
-            </div>
-
-            <div class="info-section">
-                <h2>Animations</h2>
-                <div class="animation-list" id="animations-list"></div>
-            </div>
+                <div class="info-section">
+                    <h2>Animations</h2>
+                    <div class="animation-list" id="animations-list"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -206,7 +208,7 @@
     <script type="module">
         // Import Three.js from CDN
         import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.min.js';
-        
+
         let ZenKit = null;
         let scene, camera, renderer;
         let modelMesh = null;
@@ -217,14 +219,14 @@
         let currentMdsBaseName = 'HumanS'; // Store the MDS base name
         const ROOT_BONE_ROTATION_OFFSET = new THREE.Quaternion().setFromEuler(new THREE.Euler(-90 * Math.PI / 180, 0, 90 * Math.PI / 180));
         let rootBonePositionOffsets = new Map();
-        
+
         // Asset caches
         const meshCache = new Map();
         const textureCache = new Map();
         const materialCache = new Map();
         const modelCache = new Map();
         const animationCache = new Map();
-        
+
         // Camera control variables
         let moveSpeed = 10;
         let mouseSensitivity = 0.002;
@@ -245,40 +247,40 @@
         // Initialize Three.js Scene
         function initThreeJS() {
             const canvas = document.getElementById('threejs-canvas');
-            
+
             // Scene
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x222222);
-            
+
             // Camera
             camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1.0, 100000);
             camera.position.set(0, 100, 300);
             camera.lookAt(0, 0, 0);
-            
+
             // Renderer
-            renderer = new THREE.WebGLRenderer({ 
-                canvas, 
+            renderer = new THREE.WebGLRenderer({
+                canvas,
                 antialias: true,
                 logarithmicDepthBuffer: true
             });
             renderer.setSize(canvas.clientWidth, canvas.clientHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
-            
+
             // Lighting
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
-            
+
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(100, 100, 50);
             scene.add(directionalLight);
-            
+
             // Simple orbit controls
             setupControls();
-            
+
             // Handle resize
             window.addEventListener('resize', onWindowResize);
         }
-        
+
         function setupControls() {
             const canvas = renderer.domElement;
             const keys = {};
@@ -305,7 +307,7 @@
 
                 yaw -= deltaX * mouseSensitivity;
                 pitch -= deltaY * mouseSensitivity;
-                pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+                pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
 
                 updateCameraOrientation();
             });
@@ -375,12 +377,12 @@
             // Animation loop for smooth movement
             function animate() {
                 updateMovement();
-                
+
                 // Update animation
                 if (isAnimationPlaying && currentAnimation && skeleton) {
                     updateAnimation();
                 }
-                
+
                 renderer.render(scene, camera);
                 requestAnimationFrame(animate);
             }
@@ -399,13 +401,13 @@
                 const ZenKitModule = (await import('../build-wasm/wasm/zenkit.mjs')).default;
                 ZenKit = await ZenKitModule();
                 updateStatus(`✅ ZenKit ${ZenKit.getZenKitVersion()} initialized successfully!`, 'success');
-                
+
                 // Initialize Three.js
                 initThreeJS();
-                
+
                 // Load MDS file
                 await loadMdsFile('HumanS.mds');
-                
+
             } catch (error) {
                 updateStatus(`❌ Failed to initialize ZenKit: ${error.message}`, 'error');
                 console.error('ZenKit initialization error:', error);
@@ -415,35 +417,35 @@
         async function loadMdsFile(mdsFileName = 'HumanS.mds') {
             try {
                 updateStatus('📖 Loading MDS file...', 'loading');
-                
+
                 // Store the base name for later use with animations
                 currentMdsBaseName = mdsFileName.replace(/\.(MDS|MSB)$/i, '');
-                
+
                 // Load MDS file from public/game-assets/ANIMS/
                 const response = await fetch(`/public/game-assets/ANIMS/${mdsFileName}`);
                 if (!response.ok) {
                     throw new Error(`Failed to fetch MDS file: ${response.status} ${response.statusText}`);
                 }
-                
+
                 const arrayBuffer = await response.arrayBuffer();
                 const uint8Array = new Uint8Array(arrayBuffer);
-                
+
                 // Create ModelScript and load
                 const mds = ZenKit.createModelScript();
                 const loadResult = mds.loadFromArray(uint8Array);
-                
+
                 if (!loadResult.success) {
                     throw new Error(loadResult.errorMessage || mds.getLastError() || 'Unknown loading error');
                 }
-                
+
                 updateStatus('✅ MDS file loaded successfully!', 'success');
-                
+
                 // Display information
                 displayMdsInfo(mds);
-                
+
                 // Load and render the skeleton mesh (pass MDS filename for MDH lookup)
                 await loadAndRenderSkeleton(mds, mdsFileName);
-                
+
             } catch (error) {
                 updateStatus(`❌ Failed to load MDS file: ${error.message}`, 'error');
                 console.error('MDS loading error:', error);
@@ -462,63 +464,63 @@
 
                 // Convert skeleton ASC to MDM base name (remove extension)
                 const skeletonBaseName = skeletonName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
-                
+
                 // MDH name comes from MDS filename, not skeleton name
                 // Convert MDS filename to base name (e.g., "HumanS.mds" -> "HUMANS")
                 const mdsBaseName = mdsFileName.replace(/\.(MDS|MSB)$/i, '').toUpperCase();
-                
+
                 // Try loading MDL first (contains both hierarchy and mesh)
                 // Try both skeleton name and MDS filename
                 const mdlPath1 = `/public/game-assets/ANIMS/_COMPILED/${skeletonBaseName}.MDL`;
                 const mdlPath2 = `/public/game-assets/ANIMS/_COMPILED/${mdsBaseName}.MDL`;
                 let model = await loadModelCached(mdlPath1) || await loadModelCached(mdlPath2);
-                
+
                 if (!model) {
                     // Try loading MDH + MDM separately
                     // MDH uses MDS filename, MDM uses skeleton name
                     const mdhPath = `/public/game-assets/ANIMS/_COMPILED/${mdsBaseName}.MDH`;
                     const mdmPath = `/public/game-assets/ANIMS/_COMPILED/${skeletonBaseName}.MDM`;
-                    
+
                     updateStatus(`📦 Trying MDH (${mdsBaseName}) + MDM (${skeletonBaseName})...`, 'loading');
-                    
+
                     try {
                         // Load hierarchy (.MDH)
                         const mdhResponse = await fetch(mdhPath);
                         if (!mdhResponse.ok) {
                             throw new Error(`MDH not found: ${mdhPath}`);
                         }
-                        
+
                         const mdhArrayBuffer = await mdhResponse.arrayBuffer();
                         const mdhUint8Array = new Uint8Array(mdhArrayBuffer);
-                        
+
                         const hierarchyLoader = ZenKit.createModelHierarchyLoader();
                         const mdhLoadResult = hierarchyLoader.loadFromArray(mdhUint8Array);
-                        
+
                         if (!mdhLoadResult || !mdhLoadResult.success) {
                             throw new Error(`Failed to load MDH: ${hierarchyLoader.getLastError()}`);
                         }
-                        
+
                         // Load mesh (.MDM)
                         const mdmResponse = await fetch(mdmPath);
                         if (!mdmResponse.ok) {
                             throw new Error(`MDM not found: ${mdmPath}`);
                         }
-                        
+
                         const mdmArrayBuffer = await mdmResponse.arrayBuffer();
                         const mdmUint8Array = new Uint8Array(mdmArrayBuffer);
-                        
+
                         const meshLoader = ZenKit.createModelMeshLoader();
                         const mdmLoadResult = meshLoader.loadFromArray(mdmUint8Array);
-                        
+
                         if (!mdmLoadResult || !mdmLoadResult.success) {
                             throw new Error(`Failed to load MDM: ${meshLoader.getLastError()}`);
                         }
-                        
+
                         // Combine hierarchy and mesh into a Model
                         model = ZenKit.createModel();
                         model.setHierarchy(hierarchyLoader.getHierarchy());
                         model.setMesh(meshLoader.getMesh());
-                        
+
                     } catch (error) {
                         updateStatus(`⚠️ Could not load MDH+MDM: ${error.message}`, 'loading');
                         return;
@@ -531,12 +533,12 @@
                 }
 
                 updateStatus('🎨 Rendering model...', 'loading');
-                
+
                 // Render the model
                 await renderModel(model);
-                
+
                 updateStatus('✅ Model rendered successfully!', 'success');
-                
+
             } catch (error) {
                 updateStatus(`❌ Failed to load skeleton: ${error.message}`, 'error');
                 console.error('Skeleton loading error:', error);
@@ -551,11 +553,11 @@
 
             try {
                 const response = await fetch(modelPath);
-                
+
                 // Check if file doesn't exist
                 const contentType = response.headers.get('content-type') || '';
                 const is404 = !response.ok || contentType.includes('text/html');
-                
+
                 if (is404) {
                     return null;
                 }
@@ -598,7 +600,7 @@
 
                 // Get hierarchy to build skeleton
                 const hierarchy = model.getHierarchy();
-                
+
                 // Build Three.js skeleton from hierarchy
                 skeleton = buildSkeletonFromHierarchy(hierarchy);
 
@@ -615,22 +617,22 @@
                     // Try soft-skin meshes
                     const softSkinMeshes = model.getSoftSkinMeshes();
                     const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
-                    
+
                     console.log(`📦 Soft-skin meshes: ${softSkinCount}`);
-                    
+
                     if (softSkinCount === 0) {
                         updateStatus('⚠️ Model has no renderable meshes', 'loading');
                         return;
                     }
-                    
+
                     // Render soft-skin meshes
                     const modelGroup = new THREE.Group();
-                    
+
                     // Add skeleton helper to the group
                     if (skeleton) {
                         modelGroup.add(skeleton);
                     }
-                    
+
                     // List hierarchy nodes to find head bone
                     const nodeCount = hierarchy.nodes.size ? hierarchy.nodes.size() : hierarchy.nodes.length;
                     console.log(`📋 Hierarchy nodes: ${nodeCount}`);
@@ -649,7 +651,7 @@
                     if (nodeCount > 10) {
                         console.log(`   ... and ${nodeCount - 10} more nodes`);
                     }
-                    
+
                     let rootNodeTranslation = new THREE.Vector3(0, 0, 0);
                     if (hierarchy.rootTranslation) {
                         rootNodeTranslation.set(
@@ -658,9 +660,9 @@
                             -hierarchy.rootTranslation.z
                         );
                     }
-                    
+
                     console.log(`🎨 Root translation: (${rootNodeTranslation.x}, ${rootNodeTranslation.y}, ${rootNodeTranslation.z})`);
-                    
+
                     let renderedCount = 0;
                     for (let i = 0; i < softSkinCount; i++) {
                         const softSkinMesh = softSkinMeshes.get(i);
@@ -668,42 +670,58 @@
                             console.warn(`⚠️ Soft-skin mesh ${i} is null`);
                             continue;
                         }
-                        
+
                         const processed = model.convertSoftSkinMeshToProcessedMesh(softSkinMesh);
                         const vertexCount = processed.vertices.size() / 8;
                         const triangleCount = processed.indices.size() / 3;
-                        
+
                         console.log(`🎨 Soft-skin mesh ${i}: ${vertexCount} vertices, ${triangleCount} triangles`);
-                        
+
                         if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
                             console.warn(`⚠️ Soft-skin mesh ${i} has no geometry`);
                             continue;
                         }
-                        
-                        const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed);
-                        const meshObj = new THREE.Mesh(geometry, materials);
-                        meshObj.position.copy(rootNodeTranslation);
+
+                        const { geometry, materials, hasSkinning } = await buildThreeJSGeometryAndMaterials(processed);
+
+                        let meshObj;
+                        if (hasSkinning && skeleton && skeleton.userData.threeSkeleton) {
+                            meshObj = new THREE.SkinnedMesh(geometry, materials);
+                            meshObj.bind(skeleton.userData.threeSkeleton);
+                            // Note: We don't need to add the skeleton group to the mesh. 
+                            // It's already added to modelGroup.
+                            console.log(`   ✅ Created SkinnedMesh for soft-skin mesh ${i}`);
+                        } else {
+                            meshObj = new THREE.Mesh(geometry, materials);
+                            console.log(`   ℹ️ Created static Mesh for soft-skin mesh ${i} (skinning: ${hasSkinning}, skeleton: ${!!skeleton})`);
+                        }
+
+                        // meshObj.position.copy(rootNodeTranslation); // SkinnedMesh should be at origin if skeleton is handled correctly
+                        // Actually, if we reconstructed bind pose relative to root, we might need to adjust.
+                        // But usually SkinnedMesh is at (0,0,0) and bones move vertices.
+                        // Let's try adding it to modelGroup which might have offsets.
+
                         modelGroup.add(meshObj);
                         renderedCount++;
                     }
-                    
+
                     console.log(`✅ Rendered ${renderedCount} soft-skin meshes`);
-                    
+
                     // Try to load head mesh if head bone exists
                     if (headNodeIndex >= 0) {
                         await tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex);
                     }
-                    
+
                     if (modelGroup.children.length === 0) {
                         updateStatus('⚠️ No meshes rendered', 'loading');
                         return;
                     }
-                    
+
                     modelMesh = modelGroup;
                 } else {
                     // Render attachments
                     const modelGroup = new THREE.Group();
-                    
+
                     // Add skeleton helper to the group
                     if (skeleton) {
                         modelGroup.add(skeleton);
@@ -786,22 +804,22 @@
                 const box = new THREE.Box3().setFromObject(modelMesh);
                 const center = box.getCenter(new THREE.Vector3());
                 const size = box.getSize(new THREE.Vector3());
-                
+
                 console.log(`📐 Model bounds: center=(${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}), size=(${size.x.toFixed(2)}, ${size.y.toFixed(2)}, ${size.z.toFixed(2)})`);
-                
+
                 modelMesh.position.sub(center);
 
                 scene.add(modelMesh);
-                
+
                 // Adjust camera to view the model
                 const maxDim = Math.max(size.x, size.y, size.z);
                 camera.position.set(maxDim * 1.5, maxDim * 0.8, maxDim * 1.5);
                 camera.lookAt(0, 0, 0);
-                
+
                 console.log(`📷 Camera positioned at: (${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)})`);
-                
+
                 renderer.render(scene, camera);
-                
+
             } catch (error) {
                 updateStatus(`❌ Failed to render model: ${error.message}`, 'error');
                 console.error('Model rendering error:', error);
@@ -820,7 +838,7 @@
                 bone.name = node.name || `Bone_${i}`;
                 bone.userData.nodeIndex = i;
                 bone.userData.parentIndex = node.parentIndex;
-                
+
                 // Store the initial transform
                 const nodeTransform = node.getTransform();
                 const matrixData = nodeTransform.toArray();
@@ -828,17 +846,17 @@
                 for (let j = 0; j < 16; j++) {
                     matrix.elements[j] = matrixData[j];
                 }
-                
+
                 // Decompose matrix into position, rotation, scale
                 const position = new THREE.Vector3();
                 const quaternion = new THREE.Quaternion();
                 const scale = new THREE.Vector3();
                 matrix.decompose(position, quaternion, scale);
-                
+
                 bone.position.copy(position);
                 bone.quaternion.copy(quaternion);
                 bone.scale.copy(scale);
-                
+
                 bones.push(bone);
                 boneMatrices.push(matrix.clone());
             }
@@ -847,7 +865,7 @@
             for (let i = 0; i < bones.length; i++) {
                 const bone = bones[i];
                 const parentIndex = bone.userData.parentIndex;
-                
+
                 if (parentIndex >= 0 && parentIndex < bones.length) {
                     bones[parentIndex].add(bone);
                 }
@@ -855,7 +873,7 @@
 
             // Find root bones (bones with no parent or parent index -1)
             const rootBones = bones.filter(b => b.userData.parentIndex < 0);
-            
+
             // Create a container for the skeleton
             const skeletonRoot = new THREE.Group();
             skeletonRoot.name = 'SkeletonRoot';
@@ -872,9 +890,10 @@
             skeletonHelper.visible = true;
             skeletonRoot.add(skeletonHelper);
             skeletonRoot.userData.skeletonHelper = skeletonHelper;
+            skeletonRoot.userData.threeSkeleton = threeSkeleton;
 
             console.log(`🦴 Created skeleton with ${bones.length} bones, ${rootBones.length} root(s)`);
-            
+
             return skeletonRoot;
         }
 
@@ -885,12 +904,12 @@
                     return animationCache.get(animationName);
                 }
 
-                    // Build MAN filename using OpenGothic convention: {MDS_basename}-{animation_name}.MAN
-                    // We explicitly IGNORE the 'model' (source ASC file) from the MDS, as OpenGothic does.
-                    // See OpenGothic/game/graphics/mesh/animation.cpp: Animation::Animation constructor
-                    const manFileName = `${currentMdsBaseName}-${animationName}.MAN`.toUpperCase();
-                    const manPath = `/public/game-assets/ANIMS/_COMPILED/${manFileName}`;
-                
+                // Build MAN filename using OpenGothic convention: {MDS_basename}-{animation_name}.MAN
+                // We explicitly IGNORE the 'model' (source ASC file) from the MDS, as OpenGothic does.
+                // See OpenGothic/game/graphics/mesh/animation.cpp: Animation::Animation constructor
+                const manFileName = `${currentMdsBaseName}-${animationName}.MAN`.toUpperCase();
+                const manPath = `/public/game-assets/ANIMS/_COMPILED/${manFileName}`;
+
                 console.log(`🎬 Loading animation: ${manPath}`);
                 updateStatus(`🎬 Loading animation: ${animationName}...`, 'loading');
 
@@ -911,7 +930,7 @@
 
                 // Cache the animation
                 animationCache.set(animationName, animation);
-                
+
                 console.log(`✅ Loaded animation: ${animation.getName()}, ${animation.getFrameCount()} frames, ${animation.getFps()} fps`);
                 updateStatus(`✅ Animation loaded: ${animationName}`, 'success');
 
@@ -984,12 +1003,12 @@
             isAnimationPlaying = false;
             currentAnimation = null;
             rootBonePositionOffsets.clear();
-            
+
             // Remove active class from all animations
             document.querySelectorAll('.animation-item').forEach(item => {
                 item.classList.remove('active');
             });
-            
+
             console.log('⏹️ Animation stopped');
         }
 
@@ -1014,19 +1033,19 @@
 
             // Apply animation samples to bones
             const nodeCount = currentAnimation.getNodeCount();
-            
+
             for (let nodeIdx = 0; nodeIdx < nodeCount; nodeIdx++) {
                 const boneIndex = currentAnimation.getNodeIndex(nodeIdx);
-                
+
                 if (boneIndex >= 0 && boneIndex < bones.length) {
                     const bone = bones[boneIndex];
                     const sample = currentAnimation.getSample(currentFrame, nodeIdx);
-                    
+
                     // Check if sample exists and has valid data
                     if (sample && sample.position && sample.rotation) {
                         const pos = sample.position;
                         const rot = sample.rotation;
-                        
+
                         // Apply position
                         if (bone.userData.parentIndex < 0 && rootBonePositionOffsets.has(boneIndex)) {
                             const offset = rootBonePositionOffsets.get(boneIndex);
@@ -1034,7 +1053,7 @@
                         } else {
                             bone.position.set(pos.x, pos.y, pos.z);
                         }
-                        
+
                         // Apply rotation (quaternion)
                         bone.quaternion.set(rot.x, rot.y, rot.z, rot.w);
                         if (bone.userData.parentIndex < 0) {
@@ -1058,20 +1077,42 @@
             const normals = new Float32Array(idxCount * 3);
             const uvs = new Float32Array(idxCount * 2);
 
+            // Skinning data
+            const hasSkinning = processed.boneWeights && processed.boneWeights.size() > 0;
+            const skinIndices = hasSkinning ? new Float32Array(idxCount * 4) : null;
+            const skinWeights = hasSkinning ? new Float32Array(idxCount * 4) : null;
+
             for (let i = 0; i < idxCount; i++) {
                 const vertIdx = processed.indices.get(i);
                 const vertBase = vertIdx * 8;
-                
-                positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
-                positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
-                positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
-                
-                normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
-                normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
-                normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
-                
-                uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
-                uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
+
+                positions[i * 3 + 0] = processed.vertices.get(vertBase + 0);
+                positions[i * 3 + 1] = processed.vertices.get(vertBase + 1);
+                positions[i * 3 + 2] = processed.vertices.get(vertBase + 2);
+
+                normals[i * 3 + 0] = processed.vertices.get(vertBase + 3);
+                normals[i * 3 + 1] = processed.vertices.get(vertBase + 4);
+                normals[i * 3 + 2] = processed.vertices.get(vertBase + 5);
+
+                uvs[i * 2 + 0] = processed.vertices.get(vertBase + 6);
+                uvs[i * 2 + 1] = processed.vertices.get(vertBase + 7);
+
+                if (hasSkinning) {
+                    // Get skinning data for this vertex (4 weights/indices per vertex)
+                    // Note: boneWeights/boneIndices are flat arrays corresponding to vertices
+                    // But here we are iterating over indices (triangles), so we need to look up by vertIdx
+                    const skinBase = vertIdx * 4;
+
+                    skinIndices[i * 4 + 0] = processed.boneIndices.get(skinBase + 0);
+                    skinIndices[i * 4 + 1] = processed.boneIndices.get(skinBase + 1);
+                    skinIndices[i * 4 + 2] = processed.boneIndices.get(skinBase + 2);
+                    skinIndices[i * 4 + 3] = processed.boneIndices.get(skinBase + 3);
+
+                    skinWeights[i * 4 + 0] = processed.boneWeights.get(skinBase + 0);
+                    skinWeights[i * 4 + 1] = processed.boneWeights.get(skinBase + 1);
+                    skinWeights[i * 4 + 2] = processed.boneWeights.get(skinBase + 2);
+                    skinWeights[i * 4 + 3] = processed.boneWeights.get(skinBase + 3);
+                }
             }
 
             const geometry = new THREE.BufferGeometry();
@@ -1079,21 +1120,26 @@
             geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
             geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
+            if (hasSkinning) {
+                geometry.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndices, 4));
+                geometry.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeights, 4));
+            }
+
             // Build material groups
             const triCount = processed.materialIds.size();
             geometry.clearGroups();
-            
+
             let currentMatId = processed.materialIds.get(0);
             let groupStart = 0;
-            
+
             for (let t = 1; t <= triCount; t++) {
                 const matId = (t < triCount) ? processed.materialIds.get(t) : -1;
-                
+
                 if (t === triCount || matId !== currentMatId) {
                     const vertexStart = groupStart * 3;
                     const vertexCount = (t - groupStart) * 3;
                     geometry.addGroup(vertexStart, vertexCount, currentMatId);
-                    
+
                     groupStart = t;
                     currentMatId = matId;
                 }
@@ -1107,23 +1153,23 @@
                 materialArray.push(material);
             }
 
-            return { geometry, materials: materialArray };
+            return { geometry, materials: materialArray, hasSkinning };
         }
 
         async function getMaterialCached(materialData) {
             const textureName = materialData.texture || '';
-            
+
             if (materialCache.has(textureName)) {
                 return materialCache.get(textureName);
             }
-            
+
             const material = new THREE.MeshPhongMaterial({
                 color: 0xFFFFFF,
                 side: THREE.DoubleSide,
                 transparent: false,
                 alphaTest: 0.5
             });
-            
+
             if (textureName && textureName.length) {
                 const url = tgaNameToCompiledUrl(textureName);
                 const tex = await loadTextureCached(url);
@@ -1132,7 +1178,7 @@
                     material.needsUpdate = true;
                 }
             }
-            
+
             materialCache.set(textureName, material);
             return material;
         }
@@ -1141,7 +1187,7 @@
             if (textureCache.has(texturePath)) {
                 return textureCache.get(texturePath);
             }
-            
+
             try {
                 const tex = await loadCompiledTexAsDataTexture(texturePath);
                 if (tex) {
@@ -1196,13 +1242,13 @@
 
                 for (const headName of headMeshNames) {
                     const headMmbPath = `/public/game-assets/ANIMS/_COMPILED/${headName}.MMB`;
-                    
+
                     try {
                         const response = await fetch(headMmbPath);
                         if (!response.ok) continue;
 
                         updateStatus(`📦 Loading head mesh: ${headName}...`, 'loading');
-                        
+
                         const arrayBuffer = await response.arrayBuffer();
                         const uint8Array = new Uint8Array(arrayBuffer);
 
@@ -1278,11 +1324,11 @@
         function displayMdsInfo(mds) {
             // Show content
             document.getElementById('content').style.display = 'block';
-            
+
             // Skeleton info
             document.getElementById('skeleton-name').textContent = mds.getSkeletonName() || '(none)';
             document.getElementById('skeleton-mesh-disabled').textContent = mds.isSkeletonMeshDisabled() ? 'Yes' : 'No';
-            
+
             // Meshes
             const meshCount = mds.getMeshCount();
             const meshesList = document.getElementById('meshes-list');
@@ -1298,7 +1344,7 @@
                     meshesList.appendChild(item);
                 }
             }
-            
+
             // Disabled animations
             const disabledCount = mds.getDisabledAnimationCount();
             const disabledList = document.getElementById('disabled-animations-list');
@@ -1314,7 +1360,7 @@
                     disabledList.appendChild(item);
                 }
             }
-            
+
             // Animations - make them clickable
             const animCount = mds.getAnimationCount();
             const animationsList = document.getElementById('animations-list');
@@ -1325,7 +1371,7 @@
                 for (let i = 0; i < animCount; i++) {
                     const animItem = document.createElement('div');
                     animItem.className = 'animation-item';
-                    
+
                     const name = mds.getAnimationName(i);
                     const layer = mds.getAnimationLayer(i);
                     const next = mds.getAnimationNext(i);
@@ -1337,10 +1383,10 @@
                     const lastFrame = mds.getAnimationLastFrame(i);
                     const fps = mds.getAnimationFps(i);
                     const speed = mds.getAnimationSpeed(i);
-                    
+
                     // Calculate expected MAN filename for display
                     const manName = `${currentMdsBaseName}-${name}.MAN`.toUpperCase();
-                    
+
                     animItem.innerHTML = `
                         <h3>🎬 ${name}</h3>
                         <div class="animation-details">
@@ -1359,10 +1405,10 @@
                             💡 Click to play animation
                         </div>
                     `;
-                    
+
                     // Store animation name as data attribute
                     animItem.dataset.animationName = name;
-                    
+
                     // Add click handler to play animation
                     animItem.addEventListener('click', () => {
                         if (animItem.classList.contains('active')) {
@@ -1371,11 +1417,11 @@
                             playAnimation(name);
                         }
                     });
-                    
+
                     animationsList.appendChild(animItem);
                 }
             }
-            
+
             console.log(`✅ Displayed MDS information:`);
             console.log(`   - Skeleton: ${mds.getSkeletonName()}`);
             console.log(`   - Meshes: ${meshCount}`);
@@ -1387,5 +1433,5 @@
         initZenKit();
     </script>
 </body>
-</html>
 
+</html>

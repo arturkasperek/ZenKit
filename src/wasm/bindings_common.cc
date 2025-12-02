@@ -483,8 +483,139 @@ namespace zenkit::wasm {
         if (!softSkinMesh) {
             return ProcessedMeshData{}; // Return empty data
         }
-        // SoftSkinMesh contains a MultiResolutionMesh, so we can reuse the same conversion logic
-        return convertAttachmentToProcessedMesh(&softSkinMesh->mesh);
+        
+        // Use the common logic for mesh processing (materials, triangles, etc.)
+        // But we need to handle vertices differently for skinning
+        ProcessedMeshData result;
+        
+        const auto& mesh = softSkinMesh->mesh;
+        
+        // SoftSkinMesh structure in ZenKit:
+        // - mesh (MultiResolutionMesh) contains positions, normals, etc.
+        // - weights: vector of vector of SoftSkinWeightEntry (per vertex)
+        // - nodes: vector of int32_t (node indices in hierarchy)
+        
+        // We need to build a new vertex buffer that includes skinning data
+        // The MultiResolutionMesh has submeshes, each with wedges.
+        // We need to flatten this structure similar to convertAttachmentToProcessedMesh
+        
+        uint32_t current_material_index = 0;
+        
+        // Pre-calculate global transforms for bind pose reconstruction
+        std::vector<zenkit::Mat4> nodeTransforms;
+        if (!model_.hierarchy.nodes.empty()) {
+            nodeTransforms.resize(model_.hierarchy.nodes.size());
+            for (size_t i = 0; i < model_.hierarchy.nodes.size(); ++i) {
+                nodeTransforms[i] = model_.hierarchy.nodes[i].transform;
+            }
+        }
+
+        for (const auto& submesh : mesh.sub_meshes) {
+            // Add the submesh material
+            MaterialData mat_data;
+            mat_data.name = submesh.mat.name;
+            mat_data.group = static_cast<uint32_t>(submesh.mat.group);
+            mat_data.texture = submesh.mat.texture;
+            result.materials.push_back(mat_data);
+
+            // Process wedges for this submesh
+            for (const auto& wedge : submesh.wedges) {
+                // Original vertex index in the mesh.positions array
+                uint32_t originalVertexIdx = wedge.index;
+                
+                // Get skinning data for this vertex
+                // ZenKit stores weights per original vertex
+                std::vector<float> weights(4, 0.0f);
+                std::vector<uint32_t> indices(4, 0);
+                
+                zenkit::Vec3 finalPos = {0, 0, 0};
+                float totalWeight = 0.0f;
+
+                if (originalVertexIdx < softSkinMesh->weights.size()) {
+                    const auto& vertexWeights = softSkinMesh->weights[originalVertexIdx];
+                    
+                    for (size_t i = 0; i < std::min((size_t)4, vertexWeights.size()); ++i) {
+                        const auto& w = vertexWeights[i];
+                        weights[i] = w.weight;
+                        
+                        // Use node_index directly as the global bone index
+                        // OpenGothic does this, implying that ZenKit's weight.node_index is already the global index
+                        // or that the 'nodes' array is not a palette for weights.
+                        indices[i] = w.node_index;
+                        
+                        // Reconstruct bind pose position
+                        // world_pos = bone_transform * local_pos
+                        if (indices[i] < nodeTransforms.size()) {
+                            const auto& transform = nodeTransforms[indices[i]];
+                            
+                            // Manual matrix multiplication (transform * vec4(pos, 1.0))
+                            float x = w.position.x;
+                            float y = w.position.y;
+                            float z = w.position.z;
+                            
+                            float wx = transform[0][0] * x + transform[1][0] * y + transform[2][0] * z + transform[3][0];
+                            float wy = transform[0][1] * x + transform[1][1] * y + transform[2][1] * z + transform[3][1];
+                            float wz = transform[0][2] * x + transform[1][2] * y + transform[2][2] * z + transform[3][2];
+                            
+                            finalPos.x += wx * w.weight;
+                            finalPos.y += wy * w.weight;
+                            finalPos.z += wz * w.weight;
+                            totalWeight += w.weight;
+                        } else {
+                             // Fallback or error logging?
+                             // For now just ignore, but this shouldn't happen if indices are correct
+                        }
+                    }
+                }
+                
+                // Normalize weights if needed (should sum to 1)
+                if (totalWeight > 0.0001f) {
+                    finalPos.x /= totalWeight;
+                    finalPos.y /= totalWeight;
+                    finalPos.z /= totalWeight;
+                } else {
+                    // Fallback to default position if no weights (shouldn't happen for skinned meshes)
+                     if (originalVertexIdx < mesh.positions.size()) {
+                        finalPos = mesh.positions[originalVertexIdx];
+                     }
+                }
+
+                // Position (Reconstructed Bind Pose)
+                result.vertices.push_back(finalPos.x);
+                result.vertices.push_back(finalPos.y);
+                result.vertices.push_back(finalPos.z);
+
+                // Normal
+                const auto& normal = mesh.normals[wedge.index]; // Use vertex normal
+                result.vertices.push_back(normal.x);
+                result.vertices.push_back(normal.y);
+                result.vertices.push_back(normal.z);
+
+                // UV coordinates
+                result.vertices.push_back(wedge.texture.x);
+                result.vertices.push_back(wedge.texture.y);
+                
+                // Skinning data
+                result.boneWeights.insert(result.boneWeights.end(), weights.begin(), weights.end());
+                result.boneIndices.insert(result.boneIndices.end(), indices.begin(), indices.end());
+            }
+
+            // Add triangles
+            for (const auto& triangle : submesh.triangles) {
+                // Convert wedge indices to vertex indices in our result array
+                size_t base_index = result.vertices.size() / 8 - submesh.wedges.size();
+                result.indices.push_back(base_index + triangle.wedges[0]);
+                result.indices.push_back(base_index + triangle.wedges[1]);
+                result.indices.push_back(base_index + triangle.wedges[2]);
+
+                // All triangles in this submesh use the same material index
+                result.materialIds.push_back(current_material_index);
+            }
+
+            current_material_index++;
+        }
+
+        return result;
     }
 
     // MorphMeshWrapper method implementations

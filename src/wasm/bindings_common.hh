@@ -106,6 +106,8 @@ namespace zenkit::wasm {
         std::vector<uint32_t> indices;        // triangle indices into vertices array
         std::vector<uint32_t> materialIds;    // per-triangle material ID (deduplicated)
         std::vector<MaterialData> materials;  // deduplicated material list
+        std::vector<float> boneWeights;       // 4 weights per vertex
+        std::vector<uint32_t> boneIndices;    // 4 bone indices per vertex
 
         ProcessedMeshData() = default;
     };
