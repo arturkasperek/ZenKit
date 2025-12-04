@@ -738,27 +738,32 @@
                     const updated = pose.update(deltaTime);
                     if (updated) {
                         const boneMatrices = pose.getBoneMatrices();
-                        const material = characterMesh.material;
-                        if (material && material.uniforms && material.uniforms.boneMatrices && boneMatrices) {
-                            const uniformArray = material.uniforms.boneMatrices.value;
-                            if (uniformArray && uniformArray.length > 0) {
-                                if (window.baseTranslation) {
-                                    for (let i = 0; i < Math.min(boneMatrices.length, uniformArray.length); i++) {
-                                        if (boneMatrices[i]) {
-                                            uniformArray[i].copy(boneMatrices[i]);
-                                            uniformArray[i].elements[12] += window.baseTranslation.x;
-                                            uniformArray[i].elements[13] += window.baseTranslation.y;
-                                            uniformArray[i].elements[14] += window.baseTranslation.z;
+                        const materials = Array.isArray(characterMesh.material) 
+                            ? characterMesh.material 
+                            : [characterMesh.material];
+                        
+                        for (const material of materials) {
+                            if (material && material.uniforms && material.uniforms.boneMatrices && boneMatrices) {
+                                const uniformArray = material.uniforms.boneMatrices.value;
+                                if (uniformArray && uniformArray.length > 0) {
+                                    if (window.baseTranslation) {
+                                        for (let i = 0; i < Math.min(boneMatrices.length, uniformArray.length); i++) {
+                                            if (boneMatrices[i]) {
+                                                uniformArray[i].copy(boneMatrices[i]);
+                                                uniformArray[i].elements[12] += window.baseTranslation.x;
+                                                uniformArray[i].elements[13] += window.baseTranslation.y;
+                                                uniformArray[i].elements[14] += window.baseTranslation.z;
+                                            }
+                                        }
+                                    } else {
+                                        for (let i = 0; i < Math.min(boneMatrices.length, uniformArray.length); i++) {
+                                            if (boneMatrices[i]) {
+                                                uniformArray[i].copy(boneMatrices[i]);
+                                            }
                                         }
                                     }
-                                } else {
-                                    for (let i = 0; i < Math.min(boneMatrices.length, uniformArray.length); i++) {
-                                        if (boneMatrices[i]) {
-                                            uniformArray[i].copy(boneMatrices[i]);
-                                        }
-                                    }
+                                    material.uniformsNeedUpdate = true;
                                 }
-                                material.uniformsNeedUpdate = true;
                             }
                         }
                     }
@@ -1270,61 +1275,61 @@
                 }
             }
 
-            // Build material
+            // Build material(s) - use standard Three.js materials with texture support
             let material;
             if (hasSkinning && skeleton) {
-                // Custom shader material for skinned mesh
+                // For skinned meshes, use MeshPhongMaterial with textures
+                // Three.js will handle skinning automatically if we use SkinnedMesh
+                // But since we're using custom shader, let's use basic material for now
+                // Actually, let's use standard materials and let Three.js handle it
+                
+                // Create material array for each material group
+                const materialArray = [];
+                const matCount = processed.materials.size();
+                console.log(`📦 Processing ${matCount} materials for skinned mesh`);
+                
+                for (let mi = 0; mi < matCount; mi++) {
+                    const matData = processed.materials.get(mi);
+                    const textureName = matData.texture || '';
+                    
+                    const phongMaterial = new THREE.MeshPhongMaterial({
+                        color: 0xFFFFFF,
+                        side: THREE.DoubleSide,
+                        transparent: false,
+                        alphaTest: 0.5
+                    });
+                    
+                    // Load texture if available
+                    if (textureName && textureName.length) {
+                        const url = tgaNameToCompiledUrl(textureName);
+                        console.log(`📦 Loading texture for material ${mi}: ${textureName} -> ${url}`);
+                        const tex = await loadTextureCached(url);
+                        if (tex) {
+                            phongMaterial.map = tex;
+                            phongMaterial.needsUpdate = true;
+                            console.log(`✅ Loaded texture for material ${mi}: ${textureName} (${tex.width}x${tex.height})`);
+                        } else {
+                            console.warn(`⚠️ Failed to load texture: ${textureName} from ${url}`);
+                        }
+                    } else {
+                        console.log(`ℹ️ Material ${mi} has no texture name`);
+                    }
+                    
+                    materialArray.push(phongMaterial);
+                }
+                
+                // Use first material if array is empty, otherwise use array
+                material = materialArray.length > 0 ? materialArray : new THREE.MeshPhongMaterial({
+                    color: 0xCCCCCC,
+                    side: THREE.DoubleSide
+                });
+                
+                // Store bone matrices for custom shader (we'll still need custom shader for skinning)
                 const boneMatrices = [];
                 for (let i = 0; i < skeleton.nodes.length; i++) {
                     boneMatrices.push(new THREE.Matrix4());
                 }
-
-                material = new THREE.ShaderMaterial({
-                    uniforms: {
-                        boneMatrices: { value: boneMatrices }
-                    },
-                    vertexShader: `
-                        uniform mat4 boneMatrices[${skeleton.nodes.length}];
-                        attribute vec4 skinIndex;
-                        attribute vec4 skinWeight;
-                        varying vec2 vUv;
-                        varying vec3 vNormal;
-
-                        void main() {
-                            vUv = uv;
-                            
-                            int idx0 = int(clamp(skinIndex.x, 0.0, ${skeleton.nodes.length - 1}.0));
-                            int idx1 = int(clamp(skinIndex.y, 0.0, ${skeleton.nodes.length - 1}.0));
-                            int idx2 = int(clamp(skinIndex.z, 0.0, ${skeleton.nodes.length - 1}.0));
-                            int idx3 = int(clamp(skinIndex.w, 0.0, ${skeleton.nodes.length - 1}.0));
-                            
-                            mat4 skinMatrix = 
-                                boneMatrices[idx0] * skinWeight.x +
-                                boneMatrices[idx1] * skinWeight.y +
-                                boneMatrices[idx2] * skinWeight.z +
-                                boneMatrices[idx3] * skinWeight.w;
-
-                            vec4 skinnedPosition = skinMatrix * vec4(position, 1.0);
-                            gl_Position = projectionMatrix * viewMatrix * skinnedPosition;
-                            
-                            vec4 skinnedNormal = skinMatrix * vec4(normal, 0.0);
-                            vNormal = normalize(skinnedNormal.xyz);
-                        }
-                    `,
-                    fragmentShader: `
-                        varying vec2 vUv;
-                        varying vec3 vNormal;
-                        
-                        void main() {
-                            vec3 light = normalize(vec3(1.0, 1.0, 1.0));
-                            float d = max(0.0, dot(normalize(vNormal), light));
-                            vec3 color = vec3(0.7, 0.7, 0.7) * (0.3 + 0.7 * d);
-                            gl_FragColor = vec4(color, 1.0);
-                        }
-                    `,
-                    side: THREE.DoubleSide
-                });
-
+                
                 // Initialize bone matrices from skeleton bind pose
                 let baseTranslation = new THREE.Vector3(0, 0, 0);
                 if (skeleton.rootNodes.length > 0) {
@@ -1340,14 +1345,75 @@
                     boneMatrices[i].elements[13] += baseTranslation.y;
                     boneMatrices[i].elements[14] += baseTranslation.z;
                 }
-                material.uniformsNeedUpdate = true;
+                
+                // Create custom shader material that supports textures
+                const materials = Array.isArray(material) ? material : [material];
+                const shaderMaterials = [];
+                
+                for (let mi = 0; mi < materials.length; mi++) {
+                    const baseMat = materials[mi];
+                    const texture = baseMat.map;
+                    
+                    const shaderMat = new THREE.ShaderMaterial({
+                        uniforms: {
+                            boneMatrices: { value: boneMatrices },
+                            diffuseMap: { value: texture },
+                            hasTexture: { value: texture !== null }
+                        },
+                        vertexShader: `
+                            uniform mat4 boneMatrices[${skeleton.nodes.length}];
+                            attribute vec4 skinIndex;
+                            attribute vec4 skinWeight;
+                            varying vec2 vUv;
+
+                            void main() {
+                                vUv = uv;
+                                
+                                int idx0 = int(clamp(skinIndex.x, 0.0, ${skeleton.nodes.length - 1}.0));
+                                int idx1 = int(clamp(skinIndex.y, 0.0, ${skeleton.nodes.length - 1}.0));
+                                int idx2 = int(clamp(skinIndex.z, 0.0, ${skeleton.nodes.length - 1}.0));
+                                int idx3 = int(clamp(skinIndex.w, 0.0, ${skeleton.nodes.length - 1}.0));
+                                
+                                mat4 skinMatrix = 
+                                    boneMatrices[idx0] * skinWeight.x +
+                                    boneMatrices[idx1] * skinWeight.y +
+                                    boneMatrices[idx2] * skinWeight.z +
+                                    boneMatrices[idx3] * skinWeight.w;
+
+                                vec4 skinnedPosition = skinMatrix * vec4(position, 1.0);
+                                gl_Position = projectionMatrix * viewMatrix * skinnedPosition;
+                            }
+                        `,
+                        fragmentShader: `
+                            uniform sampler2D diffuseMap;
+                            uniform bool hasTexture;
+                            varying vec2 vUv;
+                            
+                            void main() {
+                                if (hasTexture) {
+                                    gl_FragColor = texture2D(diffuseMap, vUv);
+                                } else {
+                                    gl_FragColor = vec4(0.8, 0.8, 0.8, 1.0);
+                                }
+                            }
+                        `,
+                        side: THREE.DoubleSide
+                    });
+                    
+                    shaderMaterials.push(shaderMat);
+                }
+                
+                material = shaderMaterials.length > 0 ? (shaderMaterials.length === 1 ? shaderMaterials[0] : shaderMaterials) : shaderMaterials[0];
+                if (material && material.uniforms) {
+                    material.uniformsNeedUpdate = true;
+                }
             } else {
-                // Static mesh material - use first material or create default
+                // Static mesh - load texture
                 if (processed.materials.size() > 0) {
                     material = await getMaterialCached(processed.materials.get(0));
                 } else {
                     material = new THREE.MeshPhongMaterial({
-                        color: 0xFFFFFF,
+                        color: 0xCCCCCC,
                         side: THREE.DoubleSide
                     });
                 }
@@ -1729,19 +1795,27 @@
                         console.log(`Auto-started animation: ${firstAnimName}`);
                         
                         // Force initial bone matrix update
-                        if (characterMesh && characterMesh.material && characterMesh.material.uniforms) {
+                        if (characterMesh) {
+                            const materials = Array.isArray(characterMesh.material) 
+                                ? characterMesh.material 
+                                : [characterMesh.material];
                             const boneMatrices = pose.getBoneMatrices();
-                            const uniformArray = characterMesh.material.uniforms.boneMatrices.value;
-                            if (uniformArray && window.baseTranslation) {
-                                for (let i = 0; i < Math.min(boneMatrices.length, uniformArray.length); i++) {
-                                    if (boneMatrices[i]) {
-                                        uniformArray[i].copy(boneMatrices[i]);
-                                        uniformArray[i].elements[12] += window.baseTranslation.x;
-                                        uniformArray[i].elements[13] += window.baseTranslation.y;
-                                        uniformArray[i].elements[14] += window.baseTranslation.z;
+                            
+                            for (const material of materials) {
+                                if (material && material.uniforms && material.uniforms.boneMatrices) {
+                                    const uniformArray = material.uniforms.boneMatrices.value;
+                                    if (uniformArray && window.baseTranslation) {
+                                        for (let i = 0; i < Math.min(boneMatrices.length, uniformArray.length); i++) {
+                                            if (boneMatrices[i]) {
+                                                uniformArray[i].copy(boneMatrices[i]);
+                                                uniformArray[i].elements[12] += window.baseTranslation.x;
+                                                uniformArray[i].elements[13] += window.baseTranslation.y;
+                                                uniformArray[i].elements[14] += window.baseTranslation.z;
+                                            }
+                                        }
+                                        material.uniformsNeedUpdate = true;
                                     }
                                 }
-                                characterMesh.material.uniformsNeedUpdate = true;
                             }
                         }
                     }
