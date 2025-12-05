@@ -1059,12 +1059,12 @@
                         if (hasSkinning && skeleton) {
                             meshObj = new THREE.SkinnedMesh(geometry, material);
 
-                            // Add root bone to the mesh (or scene) to be part of the hierarchy
-                            // Since we might have multiple meshes sharing the skeleton, 
-                            // we should ensure the skeleton structure is in the scene.
-                            // Adding it to the first mesh is a common pattern, or adding to modelGroup.
-                            if (modelGroup.children.indexOf(skeleton.bones[0]) === -1) {
-                                modelGroup.add(skeleton.bones[0]);
+                            // Add root bones to the mesh (or scene) to be part of the hierarchy
+                            // We must add the ACTUAL root bones, not just bones[0]
+                            for (const rootIdx of skeleton.rootNodes) {
+                                if (modelGroup.children.indexOf(skeleton.bones[rootIdx]) === -1) {
+                                    modelGroup.add(skeleton.bones[rootIdx]);
+                                }
                             }
 
                             meshObj.bind(skeleton.threeSkeleton);
@@ -1079,13 +1079,13 @@
                         renderedCount++;
                     }
 
+                    // Rotate the model group to align Gothic Z-up with Three.js Y-up
+                    // Removed rotation for debugging
+
                     console.log(`✅ Rendered ${renderedCount} soft-skin meshes`);
 
                     // Try to load head mesh if head bone exists
                     if (headNodeIndex >= 0) {
-                        // Create a dummy object to represent the head bone's position
-                        headBoneObject = new THREE.Object3D();
-                        modelGroup.add(headBoneObject); // Add it to the model group
                         await tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex); // Pass modelGroup
                     }
 
@@ -1185,7 +1185,8 @@
 
                 // Adjust camera to view the model
                 const maxDim = Math.max(size.x, size.y, size.z);
-                camera.position.set(maxDim * 1.5, maxDim * 0.8, maxDim * 1.5);
+                // Isometric view for better debugging
+                camera.position.set(maxDim * 1.5, maxDim * 1.5, maxDim * 1.5);
                 camera.lookAt(0, 0, 0);
 
                 console.log(`📷 Camera positioned at: (${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)})`);
