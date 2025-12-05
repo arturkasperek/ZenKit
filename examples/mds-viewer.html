@@ -391,6 +391,7 @@
                 }
 
                 // 4. Apply Root Translation to Root Bones
+                // 4. Apply Root Translation to Root Bones (matches OpenGothic)
                 const rt = hierarchy.rootTranslation;
                 this.rootTr = { x: rt.x, y: rt.y, z: rt.z };
 
@@ -401,14 +402,15 @@
                     bone.position.z += this.rootTr.z;
                 }
 
-                // 5. Create THREE.Skeleton with Identity Inverses
-                // Since our vertices are already in bone-local space (from WASM),
-                // we want the shader to do: BoneMatrix * Vertex
-                // Standard skinning does: BoneMatrix * InverseBindMatrix * Vertex
-                // So we set InverseBindMatrix to Identity.
+                // 5. Compute bind-pose inverses
+                for (const rootIdx of this.rootNodes) {
+                    this.bones[rootIdx].updateMatrixWorld(true);
+                }
                 const boneInverses = [];
                 for (let i = 0; i < this.bones.length; i++) {
-                    boneInverses.push(new THREE.Matrix4()); // Identity
+                    const inv = new THREE.Matrix4();
+                    inv.copy(this.bones[i].matrixWorld).invert();
+                    boneInverses.push(inv);
                 }
 
                 this.threeSkeleton = new THREE.Skeleton(this.bones, boneInverses);
@@ -1273,6 +1275,13 @@
             const skinIndices = hasSkinning ? new Float32Array(idxCount * 4) : null;
             const skinWeights = hasSkinning ? new Float32Array(idxCount * 4) : null;
 
+            console.log('📊 Skin data lengths', {
+                idxCount,
+                vertFloats: processed.vertices.size ? processed.vertices.size() : 0,
+                boneWeights: hasSkinning ? processed.boneWeights.size() : 0,
+                boneIndices: hasSkinning ? processed.boneIndices.size() : 0,
+            });
+
             for (let i = 0; i < idxCount; i++) {
                 const vertIdx = processed.indices.get(i);
                 const vertBase = vertIdx * 8;
@@ -1300,6 +1309,32 @@
                     skinWeights[i * 4 + 2] = processed.boneWeights.get(skinBase + 2);
                     skinWeights[i * 4 + 3] = processed.boneWeights.get(skinBase + 3);
                 }
+            }
+
+            // Debug first few vertices to verify weights/indices
+            const dbgN = Math.min(5, idxCount);
+            for (let i = 0; i < dbgN; i++) {
+                const vertIdx = processed.indices.get(i);
+                const vBase = vertIdx * 8;
+                const wBase = vertIdx * 4;
+                const posDbg = [
+                    processed.vertices.get(vBase + 0),
+                    processed.vertices.get(vBase + 1),
+                    processed.vertices.get(vBase + 2),
+                ];
+                const wDbg = hasSkinning ? [
+                    processed.boneWeights.get(wBase + 0),
+                    processed.boneWeights.get(wBase + 1),
+                    processed.boneWeights.get(wBase + 2),
+                    processed.boneWeights.get(wBase + 3),
+                ] : [];
+                const iDbg = hasSkinning ? [
+                    processed.boneIndices.get(wBase + 0),
+                    processed.boneIndices.get(wBase + 1),
+                    processed.boneIndices.get(wBase + 2),
+                    processed.boneIndices.get(wBase + 3),
+                ] : [];
+                console.log(`🧪 v${i} (idx ${vertIdx}) ${JSON.stringify({ posDbg, wDbg, iDbg })}`);
             }
 
             const geometry = new THREE.BufferGeometry();
@@ -1410,6 +1445,17 @@
                         side: THREE.DoubleSide
                     });
                 }
+            }
+
+            const applySkinFlag = (mat) => {
+                if (!mat) return;
+                if (hasSkinning) mat.skinning = true;
+            };
+
+            if (Array.isArray(material)) {
+                material.forEach(applySkinFlag);
+            } else {
+                applySkinFlag(material);
             }
 
             return { geometry, material, hasSkinning };

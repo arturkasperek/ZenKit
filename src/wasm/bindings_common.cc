@@ -18,6 +18,7 @@
 #include "zenkit/Archive.hh"
 #include <algorithm>
 #include <cctype>
+#include <array>
 #include <iostream>
 #include <map>
 #include <unordered_map>
@@ -528,47 +529,38 @@ namespace zenkit::wasm {
                 std::vector<float> weights(4, 0.0f);
                 std::vector<uint32_t> indices(4, 0);
                 
-                zenkit::Vec3 finalPos = {0, 0, 0};
-                float totalWeight = 0.0f;
-
                 if (originalVertexIdx < softSkinMesh->weights.size()) {
                     const auto& vertexWeights = softSkinMesh->weights[originalVertexIdx];
                     
                     for (size_t i = 0; i < std::min((size_t)4, vertexWeights.size()); ++i) {
                         const auto& w = vertexWeights[i];
                         weights[i] = w.weight;
-                        
-                        // Use node_index directly as the global bone index
-                        // OpenGothic does this, implying that ZenKit's weight.node_index is already the global index
-                        // or that the 'nodes' array is not a palette for weights.
                         indices[i] = w.node_index;
-                        
-                        // Use bone-local position directly
-                        // The shader will transform this using the animated bone matrix
-                        // which includes the bind pose transform relative to the parent
-                        finalPos.x += w.position.x * w.weight;
-                        finalPos.y += w.position.y * w.weight;
-                        finalPos.z += w.position.z * w.weight;
-                        totalWeight += w.weight;
                     }
                 }
                 
-                // Normalize weights if needed (should sum to 1)
+                // Normalize weights if needed
+                float totalWeight = weights[0] + weights[1] + weights[2] + weights[3];
                 if (totalWeight > 0.0001f) {
-                    finalPos.x /= totalWeight;
-                    finalPos.y /= totalWeight;
-                    finalPos.z /= totalWeight;
+                    weights[0] /= totalWeight;
+                    weights[1] /= totalWeight;
+                    weights[2] /= totalWeight;
+                    weights[3] /= totalWeight;
                 } else {
-                    // Fallback to default position if no weights (shouldn't happen for skinned meshes)
-                     if (originalVertexIdx < mesh.positions.size()) {
-                        finalPos = mesh.positions[originalVertexIdx];
-                     }
+                    weights[0] = 1.0f;
                 }
 
-                // Position (Bone-Local)
-                result.vertices.push_back(finalPos.x);
-                result.vertices.push_back(finalPos.y);
-                result.vertices.push_back(finalPos.z);
+                // Position (bind mesh space)
+                if (originalVertexIdx < mesh.positions.size()) {
+                    const auto& p = mesh.positions[originalVertexIdx];
+                    result.vertices.push_back(p.x);
+                    result.vertices.push_back(p.y);
+                    result.vertices.push_back(p.z);
+                } else {
+                    result.vertices.push_back(0);
+                    result.vertices.push_back(0);
+                    result.vertices.push_back(0);
+                }
 
                 // Normal
                 const auto& normal = mesh.normals[wedge.index]; // Use vertex normal

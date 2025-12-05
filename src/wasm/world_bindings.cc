@@ -308,7 +308,8 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("materialIds", &ProcessedMeshData::materialIds)
         .field("materials", &ProcessedMeshData::materials)
         .field("boneWeights", &ProcessedMeshData::boneWeights)
-        .field("boneIndices", &ProcessedMeshData::boneIndices);
+        .field("boneIndices", &ProcessedMeshData::boneIndices)
+        .field("bonePositions", &ProcessedMeshData::bonePositions);
 
     // Register vector types
     register_vector<Vector3>("VectorVector3");

@@ -108,6 +108,7 @@ namespace zenkit::wasm {
         std::vector<MaterialData> materials;  // deduplicated material list
         std::vector<float> boneWeights;       // 4 weights per vertex
         std::vector<uint32_t> boneIndices;    // 4 bone indices per vertex
+        std::vector<float> bonePositions;     // 4 * vec3 (pos0..3) per vertex, OpenGothic-style
 
         ProcessedMeshData() = default;
     };

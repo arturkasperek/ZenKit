@@ -158,6 +158,13 @@ declare module '@kolarz3/zenkit' {
     
     // Material IDs per triangle
     materialIds: IntArrayLike;
+
+    // Skinning weights (4 weights per vertex, packed)
+    boneWeights?: FloatArrayLike;
+    // Skinning indices (4 indices per vertex, packed)
+    boneIndices?: IntArrayLike;
+    // Bone-local positions (pos0..pos3) per vertex, packed 12 floats
+    bonePositions?: FloatArrayLike;
   }
 
   export interface FloatArrayLike {
