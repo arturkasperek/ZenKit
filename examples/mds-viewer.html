@@ -337,42 +337,79 @@
             constructor(hierarchy) {
                 this.nodes = [];
                 this.rootNodes = [];
-                this.tr = [];
+                this.bones = []; // Array of THREE.Bone
                 this.rootTr = { x: 0, y: 0, z: 0 };
 
                 const nodeCount = hierarchy.nodes.size();
+
+                // 1. Create Bones
                 for (let i = 0; i < nodeCount; i++) {
                     const node = hierarchy.nodes.get(i);
                     const parentIdx = node.parentIndex;
 
+                    const bone = new THREE.Bone();
+                    bone.name = node.name;
+                    this.bones.push(bone);
+
                     this.nodes.push({
                         parent: parentIdx === -1 ? -1 : parentIdx,
-                        transform: node.getTransform(),
+                        transform: node.getTransform(), // Bind pose transform
                         name: node.name
                     });
-
-                    this.tr.push(new THREE.Matrix4());
                 }
 
+                // 2. Build Hierarchy
                 for (let i = 0; i < this.nodes.length; i++) {
-                    if (this.nodes[i].parent === -1) {
+                    const parentIdx = this.nodes[i].parent;
+                    if (parentIdx === -1) {
                         this.rootNodes.push(i);
+                    } else {
+                        this.bones[parentIdx].add(this.bones[i]);
                     }
                 }
 
+                // 3. Set Initial Bind Pose (Local Transforms)
+                // The transform from ZenKit is the bind pose matrix (relative to parent?)
+                // ZenKit's node.transform is the local transform relative to parent.
+                for (let i = 0; i < this.nodes.length; i++) {
+                    const node = this.nodes[i];
+                    const bone = this.bones[i];
+
+                    const mat = this.matrix4x4DataToMatrix4(node.transform);
+
+                    // Decompose matrix to pos/quat/scale
+                    const pos = new THREE.Vector3();
+                    const quat = new THREE.Quaternion();
+                    const scale = new THREE.Vector3();
+                    mat.decompose(pos, quat, scale);
+
+                    bone.position.copy(pos);
+                    bone.quaternion.copy(quat);
+                    bone.scale.copy(scale);
+                }
+
+                // 4. Apply Root Translation to Root Bones
                 const rt = hierarchy.rootTranslation;
                 this.rootTr = { x: rt.x, y: rt.y, z: rt.z };
 
                 for (const rootIdx of this.rootNodes) {
-                    const node = this.nodes[rootIdx];
-                    const mat = this.matrix4x4DataToMatrix4(node.transform);
-                    mat.setPosition(mat.elements[12] + this.rootTr.x,
-                        mat.elements[13] + this.rootTr.y,
-                        mat.elements[14] + this.rootTr.z);
-                    node.transform = mat;
+                    const bone = this.bones[rootIdx];
+                    bone.position.x += this.rootTr.x;
+                    bone.position.y += this.rootTr.y;
+                    bone.position.z += this.rootTr.z;
                 }
 
-                this.mkSkeleton();
+                // 5. Create THREE.Skeleton with Identity Inverses
+                // Since our vertices are already in bone-local space (from WASM),
+                // we want the shader to do: BoneMatrix * Vertex
+                // Standard skinning does: BoneMatrix * InverseBindMatrix * Vertex
+                // So we set InverseBindMatrix to Identity.
+                const boneInverses = [];
+                for (let i = 0; i < this.bones.length; i++) {
+                    boneInverses.push(new THREE.Matrix4()); // Identity
+                }
+
+                this.threeSkeleton = new THREE.Skeleton(this.bones, boneInverses);
             }
 
             matrix4x4DataToMatrix4(mat4Data) {
@@ -382,24 +419,6 @@
                     te[i] = mat4Data.get(i);
                 }
                 return m;
-            }
-
-            mkSkeleton() {
-                const identity = new THREE.Matrix4();
-                this.mkSkeletonRecursive(identity, -1);
-            }
-
-            mkSkeletonRecursive(parentTransform, parentIdx) {
-                for (let i = 0; i < this.nodes.length; i++) {
-                    if (this.nodes[i].parent !== parentIdx) continue;
-
-                    const nodeMat = this.nodes[i].transform instanceof THREE.Matrix4
-                        ? this.nodes[i].transform.clone()
-                        : this.matrix4x4DataToMatrix4(this.nodes[i].transform);
-
-                    this.tr[i] = new THREE.Matrix4().multiplyMatrices(parentTransform, nodeMat);
-                    this.mkSkeletonRecursive(this.tr[i], i);
-                }
             }
 
             findNode(name) {
@@ -484,17 +503,16 @@
             constructor(skeleton) {
                 this.skeleton = skeleton;
                 this.base = [];
-                this.tr = [];
                 this.currentSeq = null;
                 this.animTime = 0;
                 this.numBones = skeleton.nodes.length;
 
                 for (let i = 0; i < this.numBones; i++) {
                     this.base.push(null);
-                    this.tr.push(new THREE.Matrix4());
                 }
 
-                this.mkSkeleton();
+                // Initial application (will leave bones in bind pose as base is all null)
+                this.applyToSkeleton();
             }
 
             startAnim(sequence) {
@@ -515,7 +533,7 @@
 
                 const updated = this.updateFrame(this.currentSeq, this.animTime);
                 if (updated) {
-                    this.mkSkeleton();
+                    this.applyToSkeleton();
                 }
                 return updated;
             }
@@ -556,34 +574,26 @@
                 return true;
             }
 
-            mkSkeleton() {
-                if (!this.skeleton) return;
-                const identity = new THREE.Matrix4();
-                this.implMkSkeleton(identity, -1);
-            }
+            applyToSkeleton() {
+                if (!this.skeleton || !this.skeleton.bones) return;
 
-            implMkSkeleton(parentTransform, parentIdx) {
-                const nodes = this.skeleton.nodes;
+                for (let i = 0; i < this.skeleton.bones.length; i++) {
+                    const bone = this.skeleton.bones[i];
+                    const sample = this.base[i];
 
-                for (let i = 0; i < nodes.length; i++) {
-                    if (nodes[i].parent !== parentIdx) continue;
-
-                    let mat;
-                    if (this.base[i]) {
-                        mat = mkMatrix(this.base[i]);
+                    if (sample) {
+                        // Apply interpolated sample
+                        bone.position.set(sample.position.x, sample.position.y, sample.position.z);
+                        bone.quaternion.set(sample.rotation.x, sample.rotation.y, sample.rotation.z, sample.rotation.w);
+                        // Scale is usually not animated in Gothic, but if we had it, we'd apply it here
+                        bone.scale.set(1, 1, 1);
                     } else {
-                        mat = nodes[i].transform instanceof THREE.Matrix4
-                            ? nodes[i].transform.clone()
-                            : this.skeleton.matrix4x4DataToMatrix4(nodes[i].transform);
+                        // Not animated in this sequence - leave as is (bind pose or previous state)
+                        // Ideally we should reset to bind pose if we want strict behavior, 
+                        // but Gothic animations often layer or rely on previous state.
+                        // For now, doing nothing preserves the bind pose if never animated.
                     }
-
-                    this.tr[i] = new THREE.Matrix4().multiplyMatrices(parentTransform, mat);
-                    this.implMkSkeleton(this.tr[i], i);
                 }
-            }
-
-            getBoneMatrices() {
-                return this.tr;
             }
         }
 
@@ -735,55 +745,10 @@
 
                 updateMovement();
 
-                // Update pose animation and bone matrices
-                if (pose && characterMesh) {
+                // Update pose animation
+                if (pose) {
                     const updated = pose.update(deltaTime);
-                    if (updated) {
-                        const boneMatrices = pose.getBoneMatrices();
-                        const materials = Array.isArray(characterMesh.material)
-                            ? characterMesh.material
-                            : [characterMesh.material];
-
-                        for (const material of materials) {
-                            if (material && material.uniforms && material.uniforms.boneMatrices && boneMatrices) {
-                                const uniformArray = material.uniforms.boneMatrices.value;
-                                if (uniformArray && uniformArray.length > 0) {
-                                    if (window.baseTranslation) {
-                                        for (let i = 0; i < Math.min(boneMatrices.length, uniformArray.length); i++) {
-                                            if (boneMatrices[i]) {
-                                                uniformArray[i].copy(boneMatrices[i]);
-                                                uniformArray[i].elements[12] += window.baseTranslation.x;
-                                                uniformArray[i].elements[13] += window.baseTranslation.y;
-                                                uniformArray[i].elements[14] += window.baseTranslation.z;
-                                            }
-                                        }
-                                    } else {
-                                        for (let i = 0; i < Math.min(boneMatrices.length, uniformArray.length); i++) {
-                                            if (boneMatrices[i]) {
-                                                uniformArray[i].copy(boneMatrices[i]);
-                                            }
-                                        }
-                                    }
-                                    material.uniformsNeedUpdate = true;
-                                }
-                            }
-                        }
-
-                        // Update head bone object position if it exists
-                        if (headBoneObject && headNodeIndex >= 0 && boneMatrices[headNodeIndex]) {
-                            const headMatrix = boneMatrices[headNodeIndex];
-                            headBoneObject.position.setFromMatrixPosition(headMatrix);
-                            headBoneObject.quaternion.setFromRotationMatrix(headMatrix);
-                            headBoneObject.scale.setFromMatrixScale(headMatrix);
-
-                            // Apply base translation if needed (same as shader)
-                            if (window.baseTranslation) {
-                                headBoneObject.position.x += window.baseTranslation.x;
-                                headBoneObject.position.y += window.baseTranslation.y;
-                                headBoneObject.position.z += window.baseTranslation.z;
-                            }
-                        }
-                    }
+                    // No need to manually update uniforms, Three.js SkinnedMesh handles it
                 }
 
                 renderer.render(scene, camera);
@@ -1092,8 +1057,18 @@
 
                         let meshObj;
                         if (hasSkinning && skeleton) {
-                            meshObj = new THREE.Mesh(geometry, material);
-                            characterMesh = meshObj; // Store reference for animation updates
+                            meshObj = new THREE.SkinnedMesh(geometry, material);
+
+                            // Add root bone to the mesh (or scene) to be part of the hierarchy
+                            // Since we might have multiple meshes sharing the skeleton, 
+                            // we should ensure the skeleton structure is in the scene.
+                            // Adding it to the first mesh is a common pattern, or adding to modelGroup.
+                            if (modelGroup.children.indexOf(skeleton.bones[0]) === -1) {
+                                modelGroup.add(skeleton.bones[0]);
+                            }
+
+                            meshObj.bind(skeleton.threeSkeleton);
+                            characterMesh = meshObj; // Store reference
                             console.log(`   ✅ Created skinned mesh for soft-skin mesh ${i}`);
                         } else {
                             meshObj = new THREE.Mesh(geometry, material);
@@ -1111,7 +1086,7 @@
                         // Create a dummy object to represent the head bone's position
                         headBoneObject = new THREE.Object3D();
                         modelGroup.add(headBoneObject); // Add it to the model group
-                        await tryLoadHeadMesh(headBoneObject, hierarchy, headNodeIndex); // Pass headBoneObject
+                        await tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex); // Pass modelGroup
                     }
 
                     if (modelGroup.children.length === 0) {
@@ -1344,89 +1319,26 @@
                     side: THREE.DoubleSide
                 });
 
-                // Store bone matrices for custom shader (we'll still need custom shader for skinning)
-                const boneMatrices = [];
-                for (let i = 0; i < skeleton.nodes.length; i++) {
-                    boneMatrices.push(new THREE.Matrix4());
-                }
-
-                // Initialize bone matrices from skeleton bind pose
-                let baseTranslation = new THREE.Vector3(0, 0, 0);
-                if (skeleton.rootNodes.length > 0) {
-                    const rootIdx = skeleton.rootNodes[0];
-                    const rootMatrix = skeleton.tr[rootIdx];
-                    baseTranslation.set(-rootMatrix.elements[12], -rootMatrix.elements[13], -rootMatrix.elements[14]);
-                }
-                window.baseTranslation = baseTranslation;
-
-                for (let i = 0; i < skeleton.tr.length && i < boneMatrices.length; i++) {
-                    boneMatrices[i].copy(skeleton.tr[i]);
-                    boneMatrices[i].elements[12] += baseTranslation.x;
-                    boneMatrices[i].elements[13] += baseTranslation.y;
-                    boneMatrices[i].elements[14] += baseTranslation.z;
-                }
-
-                // Create custom shader material that supports textures
+                // Create standard material
                 const materials = Array.isArray(material) ? material : [material];
-                const shaderMaterials = [];
+                const standardMaterials = [];
 
                 for (let mi = 0; mi < materials.length; mi++) {
                     const baseMat = materials[mi];
                     const texture = baseMat.map;
 
-                    const shaderMat = new THREE.ShaderMaterial({
-                        uniforms: {
-                            boneMatrices: { value: boneMatrices },
-                            diffuseMap: { value: texture },
-                            hasTexture: { value: texture !== null }
-                        },
-                        vertexShader: `
-                            uniform mat4 boneMatrices[${skeleton.nodes.length}];
-                            attribute vec4 skinIndex;
-                            attribute vec4 skinWeight;
-                            varying vec2 vUv;
-
-                            void main() {
-                                vUv = uv;
-                                
-                                int idx0 = int(clamp(skinIndex.x, 0.0, ${skeleton.nodes.length - 1}.0));
-                                int idx1 = int(clamp(skinIndex.y, 0.0, ${skeleton.nodes.length - 1}.0));
-                                int idx2 = int(clamp(skinIndex.z, 0.0, ${skeleton.nodes.length - 1}.0));
-                                int idx3 = int(clamp(skinIndex.w, 0.0, ${skeleton.nodes.length - 1}.0));
-                                
-                                mat4 skinMatrix = 
-                                    boneMatrices[idx0] * skinWeight.x +
-                                    boneMatrices[idx1] * skinWeight.y +
-                                    boneMatrices[idx2] * skinWeight.z +
-                                    boneMatrices[idx3] * skinWeight.w;
-
-                                vec4 skinnedPosition = skinMatrix * vec4(position, 1.0);
-                                gl_Position = projectionMatrix * viewMatrix * skinnedPosition;
-                            }
-                        `,
-                        fragmentShader: `
-                            uniform sampler2D diffuseMap;
-                            uniform bool hasTexture;
-                            varying vec2 vUv;
-                            
-                            void main() {
-                                if (hasTexture) {
-                                    gl_FragColor = texture2D(diffuseMap, vUv);
-                                } else {
-                                    gl_FragColor = vec4(0.8, 0.8, 0.8, 1.0);
-                                }
-                            }
-                        `,
-                        side: THREE.DoubleSide
+                    const stdMat = new THREE.MeshStandardMaterial({
+                        map: texture,
+                        side: THREE.DoubleSide,
+                        roughness: 0.8,
+                        metalness: 0.2,
+                        skinning: true // Enable skinning
                     });
 
-                    shaderMaterials.push(shaderMat);
+                    standardMaterials.push(stdMat);
                 }
 
-                material = shaderMaterials.length > 0 ? (shaderMaterials.length === 1 ? shaderMaterials[0] : shaderMaterials) : shaderMaterials[0];
-                if (material && material.uniforms) {
-                    material.uniformsNeedUpdate = true;
-                }
+                material = standardMaterials.length > 0 ? (standardMaterials.length === 1 ? standardMaterials[0] : standardMaterials) : standardMaterials[0];
             } else {
                 // Static mesh - load texture
                 if (processed.materials.size() > 0) {
@@ -1629,34 +1541,16 @@
                         const { geometry, material } = await buildSkinnedMeshGeometry(processed, skeleton);
                         const headMesh = new THREE.Mesh(geometry, material);
 
-                        // Instead of applying a static transform, create an Object3D that will track the head bone
-                        // This allows the head to animate with the skeleton
-                        if (!headBoneObject) {
-                            headBoneObject = new THREE.Object3D();
-                            headBoneObject.name = 'HeadBoneTracker';
-                            modelGroup.add(headBoneObject);
-
-                            // Store the head node index for animation updates
-                            window.headNodeIndex = headNodeIndex;
+                        // Attach head mesh directly to the head bone
+                        if (skeleton && skeleton.bones && headNodeIndex >= 0 && headNodeIndex < skeleton.bones.length) {
+                            const headBone = skeleton.bones[headNodeIndex];
+                            headBone.add(headMesh);
+                            console.log(`✅ Attached head mesh to bone: ${headBone.name}`);
+                        } else {
+                            console.warn(`⚠️ Could not find head bone to attach mesh`);
+                            modelGroup.add(headMesh); // Fallback
                         }
 
-                        // Initialize head position using bind pose
-                        if (skeleton && skeleton.tr && headNodeIndex >= 0 && skeleton.tr[headNodeIndex]) {
-                            const bindPoseMatrix = skeleton.tr[headNodeIndex];
-                            headBoneObject.position.setFromMatrixPosition(bindPoseMatrix);
-                            headBoneObject.quaternion.setFromRotationMatrix(bindPoseMatrix);
-                            headBoneObject.scale.setFromMatrixScale(bindPoseMatrix);
-
-                            // Apply base translation if needed
-                            if (window.baseTranslation) {
-                                headBoneObject.position.x += window.baseTranslation.x;
-                                headBoneObject.position.y += window.baseTranslation.y;
-                                headBoneObject.position.z += window.baseTranslation.z;
-                            }
-                        }
-
-                        headBoneObject.add(headMesh);
-                        console.log(`✅ Loaded and attached head mesh: ${headName}`);
                         updateStatus(`✅ Head mesh loaded: ${headName}`, 'success');
                         return; // Successfully loaded head
                         console.log(`✅ Loaded and attached head mesh: ${headName}`);
