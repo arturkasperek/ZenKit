@@ -138,7 +138,7 @@
             right: 10px;
             background: rgba(0, 0, 0, 0.8);
             color: white;
-            padding: 10px;
+            padding: 6px 8px;
             border-radius: 5px;
             font-size: 12px;
             font-family: monospace;
@@ -219,6 +219,8 @@
         let currentMdsBaseName = 'HumanS'; // Store the MDS base name
         let headBoneObject = null; // Object3D that follows the head bone for attaching the head mesh
         let headNodeIndex = -1; // Index of the head bone in the skeleton
+        let skeletonHelper = null; // Visualize bones
+        let boneLabels = []; // Sprites with bone ids
 
         // Asset caches
         const meshCache = new Map();
@@ -756,6 +758,9 @@
                     const updated = pose.update(deltaTime);
                     // No need to manually update uniforms, Three.js SkinnedMesh handles it
                 }
+                if (skeletonHelper && typeof skeletonHelper.update === 'function') {
+                    skeletonHelper.update();
+                }
 
                 renderer.render(scene, camera);
                 requestAnimationFrame(animate);
@@ -959,6 +964,29 @@
             }
         }
 
+        function createBoneLabel(text) {
+            const canvas = document.createElement('canvas');
+            const size = 96;
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, size, size);
+            ctx.fillStyle = 'rgba(0,0,0,0.35)';
+            ctx.fillRect(8, 8, size - 16, size - 16);
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '24px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, size / 2, size / 2);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            const material = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(4, 4, 1);
+            return sprite;
+        }
+
         async function renderModel(model) {
             try {
                 // Remove existing mesh
@@ -970,6 +998,19 @@
                     } else if (modelMesh.material) {
                         modelMesh.material.dispose();
                     }
+                }
+                if (skeletonHelper) {
+                    scene.remove(skeletonHelper);
+                    if (skeletonHelper.material) skeletonHelper.material.dispose();
+                    skeletonHelper = null;
+                }
+                if (boneLabels.length) {
+                    for (const label of boneLabels) {
+                        if (label.parent) label.parent.remove(label);
+                        if (label.material && label.material.map) label.material.map.dispose();
+                        if (label.material) label.material.dispose();
+                    }
+                    boneLabels = [];
                 }
 
                 // Get hierarchy to build skeleton
@@ -1188,6 +1229,20 @@
                 modelMesh.position.sub(center);
 
                 scene.add(modelMesh);
+                if (skeleton) {
+                    skeletonHelper = new THREE.SkeletonHelper(modelMesh);
+                    skeletonHelper.material.color = new THREE.Color(0x00ff00);
+                    skeletonHelper.material.linewidth = 2;
+                    scene.add(skeletonHelper);
+
+                    // Add labels to each bone for easier identification
+                    skeleton.bones.forEach((bone, idx) => {
+                        const label = createBoneLabel(`${idx}`);
+                        label.position.set(0, 5, 0); // offset so text is readable
+                        bone.add(label);
+                        boneLabels.push(label);
+                    });
+                }
 
                 // Adjust camera to view the model
                 // User requested specific start position
@@ -1337,9 +1392,9 @@
                         map: texture,
                         side: THREE.DoubleSide,
                         roughness: 0.8,
-                        metalness: 0.2,
-                        skinning: true // Enable skinning
+                        metalness: 0.2
                     });
+                    stdMat.skinning = true; // Enable skinning
 
                     standardMaterials.push(stdMat);
                 }
