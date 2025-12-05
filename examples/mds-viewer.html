@@ -616,7 +616,7 @@
 
             // Camera
             camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1.0, 100000);
-            camera.position.set(0, 100, 300);
+            camera.position.set(94.09, 94.09, 94.09);
             camera.lookAt(0, 0, 0);
 
             // Renderer
@@ -635,6 +635,10 @@
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(100, 100, 50);
             scene.add(directionalLight);
+
+            // Add AxesHelper
+            const axesHelper = new THREE.AxesHelper(200);
+            scene.add(axesHelper);
 
             // Simple orbit controls
             setupControls();
@@ -677,6 +681,7 @@
             canvas.addEventListener('mouseup', () => {
                 isMouseDown = false;
                 document.exitPointerLock();
+                console.log(`📷 Camera: pos(${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}) rot(${camera.rotation.x.toFixed(2)}, ${camera.rotation.y.toFixed(2)}, ${camera.rotation.z.toFixed(2)})`);
             });
 
             // Keyboard controls for movement
@@ -686,6 +691,7 @@
 
             document.addEventListener('keyup', (event) => {
                 keys[event.code] = false;
+                console.log(`📷 Camera: pos(${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}) rot(${camera.rotation.x.toFixed(2)}, ${camera.rotation.y.toFixed(2)}, ${camera.rotation.z.toFixed(2)})`);
             });
 
             // Mouse wheel for movement speed
@@ -1184,10 +1190,9 @@
                 scene.add(modelMesh);
 
                 // Adjust camera to view the model
-                const maxDim = Math.max(size.x, size.y, size.z);
-                // Isometric view for better debugging
-                camera.position.set(maxDim * 1.5, maxDim * 1.5, maxDim * 1.5);
-                camera.lookAt(0, 0, 0);
+                // User requested specific start position
+                // camera.position.set(maxDim * 1.5, maxDim * 1.5, maxDim * 1.5);
+                // camera.lookAt(0, 0, 0);
 
                 console.log(`📷 Camera positioned at: (${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)})`);
 
