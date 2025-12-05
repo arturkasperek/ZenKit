@@ -543,28 +543,13 @@ namespace zenkit::wasm {
                         // or that the 'nodes' array is not a palette for weights.
                         indices[i] = w.node_index;
                         
-                        // Reconstruct bind pose position
-                        // world_pos = bone_transform * local_pos
-                        if (indices[i] < nodeTransforms.size()) {
-                            const auto& transform = nodeTransforms[indices[i]];
-                            
-                            // Manual matrix multiplication (transform * vec4(pos, 1.0))
-                            float x = w.position.x;
-                            float y = w.position.y;
-                            float z = w.position.z;
-                            
-                            float wx = transform[0][0] * x + transform[1][0] * y + transform[2][0] * z + transform[3][0];
-                            float wy = transform[0][1] * x + transform[1][1] * y + transform[2][1] * z + transform[3][1];
-                            float wz = transform[0][2] * x + transform[1][2] * y + transform[2][2] * z + transform[3][2];
-                            
-                            finalPos.x += wx * w.weight;
-                            finalPos.y += wy * w.weight;
-                            finalPos.z += wz * w.weight;
-                            totalWeight += w.weight;
-                        } else {
-                             // Fallback or error logging?
-                             // For now just ignore, but this shouldn't happen if indices are correct
-                        }
+                        // Use bone-local position directly
+                        // The shader will transform this using the animated bone matrix
+                        // which includes the bind pose transform relative to the parent
+                        finalPos.x += w.position.x * w.weight;
+                        finalPos.y += w.position.y * w.weight;
+                        finalPos.z += w.position.z * w.weight;
+                        totalWeight += w.weight;
                     }
                 }
                 
@@ -580,7 +565,7 @@ namespace zenkit::wasm {
                      }
                 }
 
-                // Position (Reconstructed Bind Pose)
+                // Position (Bone-Local)
                 result.vertices.push_back(finalPos.x);
                 result.vertices.push_back(finalPos.y);
                 result.vertices.push_back(finalPos.z);
