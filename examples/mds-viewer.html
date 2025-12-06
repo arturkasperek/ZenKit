@@ -193,6 +193,32 @@
                 </div>
 
                 <div class="info-section">
+                    <h2>Bone Rotation</h2>
+                    <div class="info-item">
+                        <span class="info-label">Bone ID:</span>
+                        <input type="number" id="bone-rot-id" min="0" value="11">
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">X:</span>
+                        <input type="range" id="bone-rot-x" min="-180" max="180" step="1" value="0">
+                        <span class="info-value" id="bone-rot-x-val">0°</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Y:</span>
+                        <input type="range" id="bone-rot-y" min="-180" max="180" step="1" value="0">
+                        <span class="info-value" id="bone-rot-y-val">0°</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Z:</span>
+                        <input type="range" id="bone-rot-z" min="-180" max="180" step="1" value="0">
+                        <span class="info-value" id="bone-rot-z-val">0°</span>
+                    </div>
+                    <div class="info-item">
+                        <button id="bone-rot-reset">Reset current bone</button>
+                    </div>
+                </div>
+
+                <div class="info-section">
                     <h2>Disabled Animations</h2>
                     <div id="disabled-animations-list"></div>
                 </div>
@@ -223,6 +249,7 @@
         let boneLabels = []; // Sprites with bone ids
         const rootYawOffsetDeg = -90; // Always neutralize root yaw with this offset
         const rootXOffsetDeg = -90; // Always apply this X (pitch) offset
+        const boneRotOffsets = new Map(); // boneId -> THREE.Quaternion offset
 
         // Asset caches
         const meshCache = new Map();
@@ -239,12 +266,26 @@
         let isMouseDown = false;
         let lastMouseX = 0, lastMouseY = 0;
 
+        // Bone rotation controls (generic)
+        const boneRotId = document.getElementById('bone-rot-id');
+        const boneRotX = document.getElementById('bone-rot-x');
+        const boneRotY = document.getElementById('bone-rot-y');
+        const boneRotZ = document.getElementById('bone-rot-z');
+        const boneRotXVal = document.getElementById('bone-rot-x-val');
+        const boneRotYVal = document.getElementById('bone-rot-y-val');
+        const boneRotZVal = document.getElementById('bone-rot-z-val');
+        const boneRotResetBtn = document.getElementById('bone-rot-reset');
+
         // ====================================================================
         // ANIMATION MATH UTILITIES (Port of OpenGothic's animmath.cpp)
         // ====================================================================
 
         function mix(x, y, a) {
             return x + (y - x) * a;
+        }
+
+        function degToRad(deg) {
+            return deg * Math.PI / 180.0;
         }
 
         /**
@@ -404,6 +445,52 @@
             };
 
             console.log(`[PoseDebug] ${JSON.stringify(snapshot)}`);
+        }
+
+        function updateBoneRotLabels() {
+            if (boneRotXVal) boneRotXVal.textContent = `${boneRotX.value}°`;
+            if (boneRotYVal) boneRotYVal.textContent = `${boneRotY.value}°`;
+            if (boneRotZVal) boneRotZVal.textContent = `${boneRotZ.value}°`;
+        }
+
+        function applyBoneRotationOffset() {
+            if (!skeleton || !skeleton.bones) return;
+            const id = parseInt(boneRotId?.value || '0', 10);
+            if (Number.isNaN(id) || id < 0 || id >= skeleton.bones.length) return;
+
+            const euler = new THREE.Euler(
+                degToRad(parseFloat(boneRotX?.value || '0')),
+                degToRad(parseFloat(boneRotY?.value || '0')),
+                degToRad(parseFloat(boneRotZ?.value || '0')),
+                'XYZ'
+            );
+            const q = new THREE.Quaternion().setFromEuler(euler);
+            boneRotOffsets.set(id, q);
+
+            // Apply immediately on current pose
+            const b = skeleton.bones[id];
+            b.quaternion.multiply(q);
+            for (const rootIdx of skeleton.rootNodes) {
+                skeleton.bones[rootIdx].updateMatrixWorld(true);
+            }
+            if (characterMesh && characterMesh.skeleton) {
+                characterMesh.skeleton.update();
+            }
+            if (skeletonHelper && typeof skeletonHelper.update === 'function') {
+                skeletonHelper.update();
+            }
+            updateBoneRotLabels();
+        }
+
+        function resetCurrentBoneRotation() {
+            if (boneRotX) boneRotX.value = '0';
+            if (boneRotY) boneRotY.value = '0';
+            if (boneRotZ) boneRotZ.value = '0';
+            const id = parseInt(boneRotId?.value || '0', 10);
+            if (!Number.isNaN(id)) {
+                boneRotOffsets.delete(id);
+            }
+            updateBoneRotLabels();
         }
 
         function logRootSamples(sequence, pose) {
@@ -636,9 +723,11 @@
                 this.lastFrameInfo = null;
                 this.debugLogCounter = 0;
                 this.debugJustStarted = false;
+                this.bindRot = [];
 
                 for (let i = 0; i < this.numBones; i++) {
                     this.base.push(null);
+                    this.bindRot.push(skeleton.bones[i].quaternion.clone());
                 }
 
                 // Initial application (will leave bones in bind pose as base is all null)
@@ -764,6 +853,25 @@
                         // but Gothic animations often layer or rely on previous state.
                         // For now, doing nothing preserves the bind pose if never animated.
                     }
+                }
+
+                // Apply per-bone offsets after animation
+                if (boneRotOffsets && this.skeleton) {
+                    for (const [id, q] of boneRotOffsets.entries()) {
+                        if (id >= 0 && id < this.skeleton.bones.length) {
+                            this.skeleton.bones[id].quaternion.multiply(q);
+                        }
+                    }
+                }
+
+                for (const rootIdx of this.skeleton.rootNodes) {
+                    this.skeleton.bones[rootIdx].updateMatrixWorld(true);
+                }
+                if (characterMesh && characterMesh.skeleton) {
+                    characterMesh.skeleton.update();
+                }
+                if (skeletonHelper && typeof skeletonHelper.update === 'function') {
+                    skeletonHelper.update();
                 }
             }
         }
@@ -953,6 +1061,13 @@
                 // Initialize Three.js
                 initThreeJS();
 
+                // Hook bone rotation sliders
+                [boneRotX, boneRotY, boneRotZ].forEach((el) => {
+                    el?.addEventListener('input', applyBoneRotationOffset);
+                });
+                boneRotId?.addEventListener('input', applyBoneRotationOffset);
+                boneRotResetBtn?.addEventListener('click', resetCurrentBoneRotation);
+
                 // Load MDS file
                 await loadMdsFile('HumanS.mds');
 
@@ -1079,6 +1194,10 @@
                     updateStatus('⚠️ Could not load model mesh', 'loading');
                     return;
                 }
+
+                // Reset bone rotation controls on new model
+                boneRotOffsets.clear();
+                resetCurrentBoneRotation();
 
                 updateStatus('🎨 Rendering model...', 'loading');
 
