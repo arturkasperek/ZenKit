@@ -524,7 +524,7 @@
                 });
             }
 
-            if (samples.length) {
+            if (samples.length && false) { // Disabled verbose logging
                 const payload = {
                     tag: 'root-samples',
                     anim: sequence.name || '(unnamed)',
@@ -578,19 +578,24 @@
                 }
 
                 // 3. Set Initial Bind Pose (Local Transforms)
-                // The transform from ZenKit is the bind pose matrix (relative to parent?)
-                // ZenKit's node.transform is the local transform relative to parent.
+                // Store bind pose for later use in animation (Gothic uses absolute transforms)
+                this.bindPoseMatrices = [];
+                this.bindPoseQuaternions = [];
+                
                 for (let i = 0; i < this.nodes.length; i++) {
                     const node = this.nodes[i];
                     const bone = this.bones[i];
 
                     const mat = this.matrix4x4DataToMatrix4(node.transform);
+                    this.bindPoseMatrices.push(mat.clone());
 
                     // Decompose matrix to pos/quat/scale
                     const pos = new THREE.Vector3();
                     const quat = new THREE.Quaternion();
                     const scale = new THREE.Vector3();
                     mat.decompose(pos, quat, scale);
+
+                    this.bindPoseQuaternions.push(quat.clone());
 
                     bone.position.copy(pos);
                     bone.quaternion.copy(quat);
@@ -813,6 +818,36 @@
                 return true;
             }
 
+            // Gothic-specific quaternion to matrix conversion (matches OpenGothic's mkMatrix)
+            // Testing: trying WITHOUT transpose first
+            gothicQuaternionToMatrix(x, y, z, w, px, py, pz) {
+                const m = new THREE.Matrix4();
+                const te = m.elements;
+                
+                // OpenGothic's mkMatrix formula - column-major for Three.js
+                te[0] = w * w + x * x - y * y - z * z;
+                te[1] = 2.0 * (x * y + w * z);
+                te[2] = 2.0 * (x * z - w * y);
+                te[3] = 0;
+                
+                te[4] = 2.0 * (x * y - w * z);
+                te[5] = w * w - x * x + y * y - z * z;
+                te[6] = 2.0 * (y * z + w * x);
+                te[7] = 0;
+                
+                te[8] = 2.0 * (x * z + w * y);
+                te[9] = 2.0 * (y * z - w * x);
+                te[10] = w * w - x * x - y * y + z * z;
+                te[11] = 0;
+                
+                te[12] = px;
+                te[13] = py;
+                te[14] = pz;
+                te[15] = 1;
+                
+                return m;
+            }
+
             applyToSkeleton() {
                 if (!this.skeleton || !this.skeleton.bones) return;
 
@@ -820,14 +855,26 @@
                     ? this.skeleton.rootNodes[0]
                     : -1;
 
+                // Debug: Track specific bones that might be problematic (arms/hands)
+                const debugBones = new Set();
+                for (let i = 0; i < this.skeleton.bones.length; i++) {
+                    const boneName = this.skeleton.bones[i].name?.toLowerCase() || '';
+                    if (boneName.includes('arm') || boneName.includes('hand') || boneName.includes('finger')) {
+                        debugBones.add(i);
+                    }
+                }
+
+                const shouldDebugLog = this.debugLogCounter > 0;
+
                 for (let i = 0; i < this.skeleton.bones.length; i++) {
                     const bone = this.skeleton.bones[i];
                     const sample = this.base[i];
 
                     if (sample) {
                         let rot = sample.rotation;
+                        let pos = sample.position;
+                        
                         if (i === rootIdx && this.skeleton.bindRotEuler && this.skeleton.bindRotEuler[i]) {
-                            // Keep bind yaw plus fixed offset, preserve animated roll, allow X offset debug
                             const e = new THREE.Euler().setFromQuaternion(
                                 new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w),
                                 'YXZ'
@@ -842,17 +889,30 @@
                             rot = { x: q.x, y: q.y, z: q.z, w: q.w };
                         }
 
-                        // Apply interpolated sample
-                        bone.position.set(sample.position.x, sample.position.y, sample.position.z);
-                        bone.quaternion.set(rot.x, rot.y, rot.z, rot.w);
-                        // Scale is usually not animated in Gothic, but if we had it, we'd apply it here
+                        if (debugBones.has(i) && shouldDebugLog) {
+                            const parentIdx = this.skeleton.nodes[i].parent;
+                            const parentName = parentIdx >= 0 ? this.skeleton.bones[parentIdx].name : 'ROOT';
+                            console.log(`[AnimDebug] Bone ${i} (${bone.name}), parent: ${parentIdx} (${parentName}):`);
+                            console.log(`  Anim Quat: (${rot.x.toFixed(4)}, ${rot.y.toFixed(4)}, ${rot.z.toFixed(4)}, ${rot.w.toFixed(4)})`);
+                            console.log(`  Anim Pos: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})`);
+                        }
+                        
+                        // Test: Try conjugate (negate xyz, keep w) - this is a coordinate system flip
+                        const testQuat = new THREE.Quaternion(-rot.x, -rot.y, -rot.z, rot.w);
+                        
+                        if (debugBones.has(i) && shouldDebugLog) {
+                            console.log(`  Conjugate: (${testQuat.x.toFixed(4)}, ${testQuat.y.toFixed(4)}, ${testQuat.z.toFixed(4)}, ${testQuat.w.toFixed(4)})`);
+                        }
+                        
+                        // Apply animation sample to bone
+                        bone.position.set(pos.x, pos.y, pos.z);
+                        bone.quaternion.copy(testQuat);
                         bone.scale.set(1, 1, 1);
-                    } else {
-                        // Not animated in this sequence - leave as is (bind pose or previous state)
-                        // Ideally we should reset to bind pose if we want strict behavior, 
-                        // but Gothic animations often layer or rely on previous state.
-                        // For now, doing nothing preserves the bind pose if never animated.
                     }
+                }
+
+                if (shouldDebugLog) {
+                    this.debugLogCounter--;
                 }
 
                 // Apply per-bone offsets after animation
@@ -1307,6 +1367,16 @@
                 // Build custom Skeleton class (mimics OpenGothic)
                 skeleton = new Skeleton(hierarchy);
 
+                // Log skeleton structure for arm/hand bones
+                console.log('🦴 Skeleton bone structure (arm/hand bones):');
+                for (let i = 0; i < skeleton.bones.length; i++) {
+                    const boneName = skeleton.bones[i].name?.toLowerCase() || '';
+                    if (boneName.includes('arm') || boneName.includes('hand') || boneName.includes('finger')) {
+                        const node = skeleton.nodes[i];
+                        console.log(`  [${i}] ${skeleton.bones[i].name} (parent: ${node.parent})`);
+                    }
+                }
+
                 // Initialize Pose
                 pose = new Pose(skeleton);
 
@@ -1367,7 +1437,7 @@
                         );
                     }
 
-                    console.log(`🎨 Root translation: (${rootNodeTranslation.x}, ${rootNodeTranslation.y}, ${rootNodeTranslation.z})`);
+                    if (false) console.log(`🎨 Root translation: (${rootNodeTranslation.x}, ${rootNodeTranslation.y}, ${rootNodeTranslation.z})`);
 
                     let renderedCount = 0;
                     for (let i = 0; i < softSkinCount; i++) {
@@ -1381,7 +1451,7 @@
                         const vertexCount = processed.vertices.size() / 8;
                         const triangleCount = processed.indices.size() / 3;
 
-                        console.log(`🎨 Soft-skin mesh ${i}: ${vertexCount} vertices, ${triangleCount} triangles`);
+                        if (false) console.log(`🎨 Soft-skin mesh ${i}: ${vertexCount} vertices, ${triangleCount} triangles`);
 
                         if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
                             console.warn(`⚠️ Soft-skin mesh ${i} has no geometry`);
@@ -1476,7 +1546,7 @@
                             }
                         }
 
-                        console.log(`🎨 Rendering attachment: ${attachmentName} (node index: ${hierarchyNodeIndex})`);
+                        if (false) console.log(`🎨 Rendering attachment: ${attachmentName} (node index: ${hierarchyNodeIndex})`);
 
                         const processed = model.convertAttachmentToProcessedMesh(attachment);
                         if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
@@ -1561,12 +1631,15 @@
             const skinIndices = hasSkinning ? new Float32Array(idxCount * 4) : null;
             const skinWeights = hasSkinning ? new Float32Array(idxCount * 4) : null;
 
-            console.log('📊 Skin data lengths', {
-                idxCount,
-                vertFloats: processed.vertices.size ? processed.vertices.size() : 0,
-                boneWeights: hasSkinning ? processed.boneWeights.size() : 0,
-                boneIndices: hasSkinning ? processed.boneIndices.size() : 0,
-            });
+            // Disabled verbose logging
+            if (false) {
+                console.log('📊 Skin data lengths', {
+                    idxCount,
+                    vertFloats: processed.vertices.size ? processed.vertices.size() : 0,
+                    boneWeights: hasSkinning ? processed.boneWeights.size() : 0,
+                    boneIndices: hasSkinning ? processed.boneIndices.size() : 0,
+                });
+            }
 
             for (let i = 0; i < idxCount; i++) {
                 const vertIdx = processed.indices.get(i);
