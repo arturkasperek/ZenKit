@@ -242,7 +242,14 @@
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
         let pose = null; // Custom Pose class instance
-        let currentMdsBaseName = 'HumanS'; // Store the MDS base name
+        const FORCE_FEMALE_BODY = true; // Hardcode female rig/mesh
+        const DEFAULT_MDS = 'HumanS.mds';
+        const DEFAULT_OVERLAY = 'MDS_OVERLAY/Humans_Babe.mds';
+        let currentMdsBaseName = 'HumanS'; // Store the MDS base name (from MDS file)
+        let currentSkeletonBaseName = ''; // Store current skeleton base for render
+        let overlayAnimations = []; // Animations from overlay MDS (with source base)
+        let overlayDisabled = []; // Disabled animations from overlay
+        let headMeshesAvailable = null; // Unknown; set false if assets missing
         let headPivotHelper = null; // Visual helper pinned to the head bone pivot
         let headNodeIndex = -1; // Index of the head bone in the skeleton
         let skeletonHelper = null; // Visualize bones
@@ -1059,8 +1066,8 @@
                 boneRotId?.addEventListener('input', applyBoneRotationOffset);
                 boneRotResetBtn?.addEventListener('click', resetCurrentBoneRotation);
 
-                // Load MDS file
-                await loadMdsFile('HumanS.mds');
+                // Load base MDS and optional overlay
+                await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
 
             } catch (error) {
                 updateStatus(`❌ Failed to initialize ZenKit: ${error.message}`, 'error');
@@ -1068,12 +1075,15 @@
             }
         }
 
-        async function loadMdsFile(mdsFileName = 'HumanS.mds') {
+        async function loadMdsFile(mdsFileName = DEFAULT_MDS, overlayFileName = null) {
             try {
                 updateStatus('📖 Loading MDS file...', 'loading');
 
-                // Store the base name for later use with animations
-                currentMdsBaseName = mdsFileName.replace(/\.(MDS|MSB)$/i, '');
+                // Store the base name (without path/ext) for later use with animations
+                const mdsFileOnly = mdsFileName.split('/').pop() || mdsFileName;
+                currentMdsBaseName = mdsFileOnly.replace(/\.(MDS|MSB)$/i, '');
+                overlayAnimations = [];
+                overlayDisabled = [];
 
                 // Load MDS file from public/game-assets/ANIMS/
                 const response = await fetch(`/public/game-assets/ANIMS/${mdsFileName}`);
@@ -1094,8 +1104,48 @@
 
                 updateStatus('✅ MDS file loaded successfully!', 'success');
 
-                // Display information
-                displayMdsInfo(mds);
+                // If overlay requested, load it for animations only
+                if (overlayFileName) {
+                    try {
+                        const ovFileOnly = overlayFileName.split('/').pop() || overlayFileName;
+                        const ovBaseName = ovFileOnly.replace(/\.(MDS|MSB)$/i, '').toUpperCase();
+                        const ovResp = await fetch(`/public/game-assets/ANIMS/${overlayFileName}`);
+                        if (ovResp.ok) {
+                            const ovBuf = await ovResp.arrayBuffer();
+                            const ovU8 = new Uint8Array(ovBuf);
+                            const ovMds = ZenKit.createModelScript();
+                            const ovRes = ovMds.loadFromArray(ovU8);
+                            if (ovRes.success) {
+                                const ovAnimCount = ovMds.getAnimationCount();
+                                for (let i = 0; i < ovAnimCount; i++) {
+                                    overlayAnimations.push({
+                                        name: ovMds.getAnimationName(i),
+                                        layer: ovMds.getAnimationLayer(i),
+                                        next: ovMds.getAnimationNext(i),
+                                        blendIn: ovMds.getAnimationBlendIn(i),
+                                        blendOut: ovMds.getAnimationBlendOut(i),
+                                        flags: ovMds.getAnimationFlags(i),
+                                        model: ovMds.getAnimationModel(i),
+                                        firstFrame: ovMds.getAnimationFirstFrame(i),
+                                        lastFrame: ovMds.getAnimationLastFrame(i),
+                                        fps: ovMds.getAnimationFps(i),
+                                        speed: ovMds.getAnimationSpeed(i),
+                                        sourceBase: ovBaseName
+                                    });
+                                }
+                                const ovDisabledCount = ovMds.getDisabledAnimationCount();
+                                for (let i = 0; i < ovDisabledCount; i++) {
+                                    overlayDisabled.push(ovMds.getDisabledAnimationName(i));
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`Failed to load overlay MDS ${overlayFileName}: ${e.message}`);
+                    }
+                }
+
+                // Display information (base + overlay animations)
+                displayMdsInfo(mds, overlayAnimations, overlayDisabled);
 
                 // Load and render the skeleton mesh (pass MDS filename for MDH lookup)
                 await loadAndRenderSkeleton(mds, mdsFileName);
@@ -1106,79 +1156,82 @@
             }
         }
 
-        async function loadAndRenderSkeleton(mds, mdsFileName = 'HumanS.mds') {
+        async function loadAndRenderSkeleton(mds, mdsFileName = DEFAULT_MDS) {
             try {
-                const skeletonName = mds.getSkeletonName();
-                if (!skeletonName) {
-                    updateStatus('⚠️ No skeleton name found in MDS', 'loading');
-                    return;
-                }
+                const mdsSkeletonName = mds.getSkeletonName();
+                const mdsFileOnly = mdsFileName.split('/').pop() || mdsFileName;
 
-                updateStatus(`📦 Loading skeleton mesh: ${skeletonName}...`, 'loading');
+                // Decide if we must force female rig (e.g., overlay without skeleton or specific overlay file)
+                const forcedMdmName = 'HUM_BODY_BABE0';
+                // Always use base humans hierarchy to match original game behavior
+                const forcedMdhName = 'HUMANS';
+                const isBabeOverlay = mdsFileName.toLowerCase().includes('mds_overlay/humans_babe');
+                const useForced = FORCE_FEMALE_BODY || !mdsSkeletonName || isBabeOverlay;
 
-                // Convert skeleton ASC to MDM base name (remove extension)
-                const skeletonBaseName = skeletonName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
+                const skeletonBaseName = useForced
+                    ? forcedMdmName
+                    : mdsSkeletonName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
+                const mdsBaseName = useForced
+                    ? forcedMdhName
+                    : mdsFileOnly.replace(/\.(MDS|MSB)$/i, '').toUpperCase();
+                const skeletonName = `${skeletonBaseName}.MDM`;
+                currentSkeletonBaseName = skeletonBaseName;
 
-                // MDH name comes from MDS filename, not skeleton name
-                // Convert MDS filename to base name (e.g., "HumanS.mds" -> "HUMANS")
-                const mdsBaseName = mdsFileName.replace(/\.(MDS|MSB)$/i, '').toUpperCase();
+                updateStatus(
+                    useForced
+                        ? `📦 Loading skeleton mesh (forced): ${forcedMdhName}.MDH + ${forcedMdmName}.MDM`
+                        : `📦 Loading skeleton mesh: ${skeletonName}...`,
+                    'loading'
+                );
 
-                // Try loading MDL first (contains both hierarchy and mesh)
-                // Try both skeleton name and MDS filename
-                const mdlPath1 = `/public/game-assets/ANIMS/_COMPILED/${skeletonBaseName}.MDL`;
-                const mdlPath2 = `/public/game-assets/ANIMS/_COMPILED/${mdsBaseName}.MDL`;
-                let model = await loadModelCached(mdlPath1) || await loadModelCached(mdlPath2);
+                // Load MDH + MDM directly (MDL not available in provided assets)
+                let model = null;
+                const mdhPath = `/public/game-assets/ANIMS/_COMPILED/${mdsBaseName}.MDH`;
+                const mdmPath = `/public/game-assets/ANIMS/_COMPILED/${skeletonBaseName}.MDM`;
 
-                if (!model) {
-                    // Try loading MDH + MDM separately
-                    // MDH uses MDS filename, MDM uses skeleton name
-                    const mdhPath = `/public/game-assets/ANIMS/_COMPILED/${mdsBaseName}.MDH`;
-                    const mdmPath = `/public/game-assets/ANIMS/_COMPILED/${skeletonBaseName}.MDM`;
+                updateStatus(`📦 Loading MDH (${mdsBaseName}) + MDM (${skeletonBaseName})...`, 'loading');
 
-                    updateStatus(`📦 Trying MDH (${mdsBaseName}) + MDM (${skeletonBaseName})...`, 'loading');
-
-                    try {
-                        // Load hierarchy (.MDH)
-                        const mdhResponse = await fetch(mdhPath);
-                        if (!mdhResponse.ok) {
-                            throw new Error(`MDH not found: ${mdhPath}`);
-                        }
-
-                        const mdhArrayBuffer = await mdhResponse.arrayBuffer();
-                        const mdhUint8Array = new Uint8Array(mdhArrayBuffer);
-
-                        const hierarchyLoader = ZenKit.createModelHierarchyLoader();
-                        const mdhLoadResult = hierarchyLoader.loadFromArray(mdhUint8Array);
-
-                        if (!mdhLoadResult || !mdhLoadResult.success) {
-                            throw new Error(`Failed to load MDH: ${hierarchyLoader.getLastError()}`);
-                        }
-
-                        // Load mesh (.MDM)
-                        const mdmResponse = await fetch(mdmPath);
-                        if (!mdmResponse.ok) {
-                            throw new Error(`MDM not found: ${mdmPath}`);
-                        }
-
-                        const mdmArrayBuffer = await mdmResponse.arrayBuffer();
-                        const mdmUint8Array = new Uint8Array(mdmArrayBuffer);
-
-                        const meshLoader = ZenKit.createModelMeshLoader();
-                        const mdmLoadResult = meshLoader.loadFromArray(mdmUint8Array);
-
-                        if (!mdmLoadResult || !mdmLoadResult.success) {
-                            throw new Error(`Failed to load MDM: ${meshLoader.getLastError()}`);
-                        }
-
-                        // Combine hierarchy and mesh into a Model
-                        model = ZenKit.createModel();
-                        model.setHierarchy(hierarchyLoader.getHierarchy());
-                        model.setMesh(meshLoader.getMesh());
-
-                    } catch (error) {
-                        updateStatus(`⚠️ Could not load MDH+MDM: ${error.message}`, 'loading');
-                        return;
+                try {
+                    // Load hierarchy (.MDH)
+                    const mdhResponse = await fetch(mdhPath);
+                    if (!mdhResponse.ok) {
+                        throw new Error(`MDH not found: ${mdhPath}`);
                     }
+
+                    const mdhArrayBuffer = await mdhResponse.arrayBuffer();
+                    const mdhUint8Array = new Uint8Array(mdhArrayBuffer);
+
+                    const hierarchyLoader = ZenKit.createModelHierarchyLoader();
+                    const mdhLoadResult = hierarchyLoader.loadFromArray(mdhUint8Array);
+
+                    if (!mdhLoadResult || !mdhLoadResult.success) {
+                        throw new Error(`Failed to load MDH: ${hierarchyLoader.getLastError()}`);
+                    }
+
+                    // Load mesh (.MDM)
+                    const mdmResponse = await fetch(mdmPath);
+                    if (!mdmResponse.ok) {
+                        throw new Error(`MDM not found: ${mdmPath}`);
+                    }
+
+                    const mdmArrayBuffer = await mdmResponse.arrayBuffer();
+                    const mdmUint8Array = new Uint8Array(mdmArrayBuffer);
+
+                    const meshLoader = ZenKit.createModelMeshLoader();
+                    const mdmLoadResult = meshLoader.loadFromArray(mdmUint8Array);
+
+                    if (!mdmLoadResult || !mdmLoadResult.success) {
+                        throw new Error(`Failed to load MDM: ${meshLoader.getLastError()}`);
+                    }
+
+                    // Combine hierarchy and mesh into a Model
+                    model = ZenKit.createModel();
+                    model.setHierarchy(hierarchyLoader.getHierarchy());
+                    model.setMesh(meshLoader.getMesh());
+
+                } catch (error) {
+                    updateStatus(`⚠️ Could not load MDH+MDM: ${error.message}`, 'loading');
+                    return;
                 }
 
                 if (!model) {
@@ -1412,14 +1465,8 @@
                         headBone.add(headPivotHelper);
                     }
 
-                    let rootNodeTranslation = new THREE.Vector3(0, 0, 0);
-                    if (hierarchy.rootTranslation) {
-                        rootNodeTranslation.set(
-                            -hierarchy.rootTranslation.x,
-                            -hierarchy.rootTranslation.y,
-                            -hierarchy.rootTranslation.z
-                        );
-                    }
+                    // Do not offset modelGroup by rootTranslation; bones already include it
+                    const rootNodeTranslation = new THREE.Vector3(0, 0, 0);
 
                     if (false) console.log(`🎨 Root translation: (${rootNodeTranslation.x}, ${rootNodeTranslation.y}, ${rootNodeTranslation.z})`);
 
@@ -1462,6 +1509,30 @@
                         } else {
                             meshObj = new THREE.Mesh(geometry, material);
                             console.log(`   ℹ️ Created static mesh for soft-skin mesh ${i} (skinning: ${hasSkinning})`);
+                        }
+
+                        // Ensure body is visible (opaque)
+                        const applyOpacity = (mat) => {
+                            if (!mat) return;
+                            mat.transparent = false;
+                            mat.opacity = 1;
+                            mat.depthWrite = true;
+                        };
+                        if (Array.isArray(meshObj.material)) {
+                            meshObj.material.forEach(applyOpacity);
+                        } else {
+                            applyOpacity(meshObj.material);
+                        }
+
+                        // Hack alignment for female body: adjust geometry to match male bind-pose
+                        if (FORCE_FEMALE_BODY && currentSkeletonBaseName.startsWith('HUM_BODY_BABE')) {
+                            // Align Babe mesh center to male reference (delta from compare-mdm)
+                            // Apply offset to geometry vertices, not mesh position
+                            const offsetX = 1.05;
+                            const offsetY = 0.38;
+                            const offsetZ = 14.0;  // Positive due to DirectX -> WebGL coordinate conversion
+                            meshObj.geometry.translate(offsetX, offsetY, offsetZ);
+                            console.log(`🔧 Applied BABE body geometry correction: (${offsetX}, ${offsetY}, ${offsetZ})`);
                         }
 
                         modelGroup.add(meshObj);
@@ -1805,13 +1876,15 @@
         }
 
 
-        async function loadAnimation(animationName, mdsAnimation = null) {
+        async function loadAnimation(animationName, mdsAnimation = null, manBaseName = null) {
             try {
-                if (animationCache.has(animationName)) {
-                    return animationCache.get(animationName);
+                const baseName = (manBaseName || currentMdsBaseName).toUpperCase();
+                const cacheKey = `${baseName}:${animationName}`;
+                if (animationCache.has(cacheKey)) {
+                    return animationCache.get(cacheKey);
                 }
 
-                const manFileName = `${currentMdsBaseName}-${animationName}.MAN`.toUpperCase();
+                const manFileName = `${baseName}-${animationName}.MAN`.toUpperCase();
                 const manPath = `/public/game-assets/ANIMS/_COMPILED/${manFileName}`;
 
                 console.log(`🎬 Loading animation: ${manPath}`);
@@ -1845,7 +1918,7 @@
                     animation = new Animation();
                 }
                 animation.addSequence(animationName, seq);
-                animationCache.set(animationName, seq);
+                animationCache.set(cacheKey, seq);
 
                 console.log(`✅ Loaded animation: ${animationName} (${seq.numFrames} frames, ${seq.nodeIndex.length} bones)`);
                 return seq;
@@ -1956,6 +2029,13 @@
 
         async function tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex) {
             try {
+                if (headMeshesAvailable === false) {
+                    console.log('ℹ️ Head MMB assets not available; skipping head load');
+                    return;
+                }
+                // If we ever discover a missing asset, disable further attempts
+                const markUnavailable = () => { headMeshesAvailable = false; };
+
                 // Try common head mesh names
                 const headMeshNames = [
                     'HUM_HEAD',
@@ -1969,7 +2049,10 @@
 
                     try {
                         const response = await fetch(headMmbPath);
-                        if (!response.ok) continue;
+                        if (!response.ok) {
+                            markUnavailable();
+                            continue;
+                        }
 
                         updateStatus(`📦 Loading head mesh: ${headName}...`, 'loading');
 
@@ -2001,6 +2084,7 @@
                             modelGroup.add(headMesh); // Fallback
                         }
 
+                        headMeshesAvailable = true;
                         updateStatus(`✅ Head mesh loaded: ${headName}`, 'success');
                         return; // Successfully loaded head
                         console.log(`✅ Loaded and attached head mesh: ${headName}`);
@@ -2013,12 +2097,14 @@
                 }
 
                 console.log(`⚠️ No head mesh found (tried: ${headMeshNames.join(', ')})`);
+                markUnavailable();
             } catch (error) {
                 console.warn(`⚠️ Failed to load head mesh: ${error.message}`);
+                markUnavailable();
             }
         }
 
-        function displayMdsInfo(mds) {
+        function displayMdsInfo(mds, extraAnimations = [], extraDisabled = []) {
             // Show content
             document.getElementById('content').style.display = 'block';
 
@@ -2043,29 +2129,36 @@
             }
 
             // Disabled animations
-            const disabledCount = mds.getDisabledAnimationCount();
+            const disabledCount = mds.getDisabledAnimationCount() + extraDisabled.length;
             const disabledList = document.getElementById('disabled-animations-list');
             if (disabledCount === 0) {
                 disabledList.innerHTML = '<div class="info-item">No disabled animations</div>';
             } else {
                 disabledList.innerHTML = '';
-                for (let i = 0; i < disabledCount; i++) {
+                for (let i = 0; i < mds.getDisabledAnimationCount(); i++) {
                     const animName = mds.getDisabledAnimationName(i);
                     const item = document.createElement('div');
                     item.className = 'info-item';
                     item.textContent = animName;
                     disabledList.appendChild(item);
                 }
+                for (const animName of extraDisabled) {
+                    const item = document.createElement('div');
+                    item.className = 'info-item';
+                    item.textContent = `${animName} (overlay)`;
+                    disabledList.appendChild(item);
+                }
             }
 
             // Animations - make them clickable
-            const animCount = mds.getAnimationCount();
+            const baseAnimCount = mds.getAnimationCount();
+            const animCount = baseAnimCount + extraAnimations.length;
             const animationsList = document.getElementById('animations-list');
             if (animCount === 0) {
                 animationsList.innerHTML = '<div class="info-item">No animations defined</div>';
             } else {
                 animationsList.innerHTML = '';
-                for (let i = 0; i < animCount; i++) {
+                for (let i = 0; i < baseAnimCount; i++) {
                     const animItem = document.createElement('div');
                     animItem.className = 'animation-item';
 
@@ -2082,7 +2175,8 @@
                     const speed = mds.getAnimationSpeed(i);
 
                     // Calculate expected MAN filename for display
-                    const manName = `${currentMdsBaseName}-${name}.MAN`.toUpperCase();
+                    const manBase = currentMdsBaseName.toUpperCase();
+                    const manName = `${manBase}-${name}.MAN`.toUpperCase();
 
                     animItem.innerHTML = `
                         <h3>🎬 ${name}</h3>
@@ -2105,6 +2199,7 @@
 
                     // Store animation name as data attribute
                     animItem.dataset.animationName = name;
+                    animItem.dataset.animationBase = manBase;
 
                     // Add click handler to play animation
                     animItem.addEventListener('click', async () => {
@@ -2121,7 +2216,68 @@
                                 flags: flags,
                                 next: next
                             };
-                            await loadAnimation(name, mdsAnim);
+                            await loadAnimation(name, mdsAnim, manBase);
+                            playAnimation(name);
+                        }
+                    });
+
+                    animationsList.appendChild(animItem);
+                }
+                // Overlay / extra animations
+                for (const extra of extraAnimations) {
+                    const animItem = document.createElement('div');
+                    animItem.className = 'animation-item';
+
+                    const name = extra.name;
+                    const layer = extra.layer;
+                    const next = extra.next;
+                    const blendIn = extra.blendIn;
+                    const blendOut = extra.blendOut;
+                    const flags = extra.flags;
+                    const model = extra.model;
+                    const firstFrame = extra.firstFrame;
+                    const lastFrame = extra.lastFrame;
+                    const fps = extra.fps;
+                    const speed = extra.speed;
+                    const manBase = extra.sourceBase || currentMdsBaseName.toUpperCase();
+                    const manName = `${manBase}-${name}.MAN`.toUpperCase();
+
+                    animItem.innerHTML = `
+                        <h3>🎬 ${name} (overlay)</h3>
+                        <div class="animation-details">
+                            <div><span class="info-label">Layer:</span> <span class="info-value">${layer}</span></div>
+                            <div><span class="info-label">Next:</span> <span class="info-value">${next || '(none)'}</span></div>
+                            <div><span class="info-label">Blend In:</span> <span class="info-value">${blendIn.toFixed(2)}</span></div>
+                            <div><span class="info-label">Blend Out:</span> <span class="info-value">${blendOut.toFixed(2)}</span></div>
+                            <div><span class="info-label">Flags:</span> <span class="info-value">0x${flags.toString(16)}</span></div>
+                            <div><span class="info-label">Source:</span> <span class="info-value">${model || '(none)'}</span></div>
+                            <div><span class="info-label">Compiled:</span> <span class="info-value">${manName}</span></div>
+                            <div><span class="info-label">Frames:</span> <span class="info-value">${firstFrame} - ${lastFrame}</span></div>
+                            <div><span class="info-label">FPS:</span> <span class="info-value">${fps.toFixed(2)}</span></div>
+                            <div><span class="info-label">Speed:</span> <span class="info-value">${speed.toFixed(2)}</span></div>
+                        </div>
+                        <div style="margin-top: 8px; font-size: 0.85em; color: #888;">
+                            💡 Click to play animation (overlay)
+                        </div>
+                    `;
+
+                    animItem.dataset.animationName = name;
+                    animItem.dataset.animationBase = manBase;
+
+                    animItem.addEventListener('click', async () => {
+                        if (animItem.classList.contains('active')) {
+                            // Stop animation by clearing current sequence
+                            if (pose) {
+                                pose.currentSeq = null;
+                            }
+                            animItem.classList.remove('active');
+                        } else {
+                            const mdsAnim = {
+                                name: name,
+                                flags: flags,
+                                next: next
+                            };
+                            await loadAnimation(name, mdsAnim, manBase);
                             playAnimation(name);
                         }
                     });
@@ -2144,7 +2300,7 @@
                     flags: mds.getAnimationFlags(0),
                     next: mds.getAnimationNext(0)
                 };
-                loadAnimation(firstAnimName, mdsAnim).then(seq => {
+                loadAnimation(firstAnimName, mdsAnim, currentMdsBaseName.toUpperCase()).then(seq => {
                     if (seq) {
                         pose.startAnim(seq);
                         console.log(`Auto-started animation: ${firstAnimName}`);
