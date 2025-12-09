@@ -1198,19 +1198,6 @@
                             console.log(`   ℹ️ Created static mesh for soft-skin mesh ${i} (skinning: ${hasSkinning})`);
                         }
 
-                        // Ensure body is visible (opaque)
-                        const applyOpacity = (mat) => {
-                            if (!mat) return;
-                            mat.transparent = false;
-                            mat.opacity = 1;
-                            mat.depthWrite = true;
-                        };
-                        if (Array.isArray(meshObj.material)) {
-                            meshObj.material.forEach(applyOpacity);
-                        } else {
-                            applyOpacity(meshObj.material);
-                        }
-
                         // Hack alignment for female body: adjust geometry to match male bind-pose
                         if (FORCE_FEMALE_BODY && currentSkeletonBaseName.startsWith('HUM_BODY_BABE')) {
                             // Align Babe mesh center to male reference (delta from compare-mdm)
