@@ -216,7 +216,7 @@
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
         let pose = null; // Custom Pose class instance
-        const FORCE_FEMALE_BODY = false; // Hardcode female rig/mesh
+        const FORCE_FEMALE_BODY = true; // Hardcode female rig/mesh
         const DEFAULT_MDS = 'HumanS.mds';
         const DEFAULT_OVERLAY = 'MDS_OVERLAY/Humans_Babe.mds';
         let currentMdsBaseName = 'HumanS'; // Store the MDS base name (from MDS file)
@@ -340,123 +340,6 @@
             te[15] = 1;
 
             return m;
-        }
-
-        const radToDeg = (rad) => Number((rad * 180 / Math.PI).toFixed(3));
-        const quatToEulerDegYXZ = (quat) => {
-            const e = new THREE.Euler().setFromQuaternion(
-                new THREE.Quaternion(quat.x, quat.y, quat.z, quat.w),
-                'YXZ'
-            );
-            return { y: radToDeg(e.y), x: radToDeg(e.x), z: radToDeg(e.z) };
-        };
-
-        function logPoseDebug(tag, pose) {
-            if (!pose || !pose.skeleton || !pose.skeleton.bones || pose.skeleton.bones.length === 0) {
-                return;
-            }
-
-            const rootIdx = pose.skeleton.rootNodes && pose.skeleton.rootNodes.length > 0
-                ? pose.skeleton.rootNodes[0]
-                : 0;
-            const rootBone = pose.skeleton.bones[rootIdx];
-            const rootEuler = new THREE.Euler().setFromQuaternion(rootBone.quaternion, 'YXZ');
-
-            const modelEuler = characterMesh
-                ? new THREE.Euler().setFromQuaternion(characterMesh.quaternion, 'YXZ')
-                : null;
-
-            const snapshot = {
-                tag,
-                anim: pose.currentSeq ? pose.currentSeq.name : null,
-                animClass: pose.currentSeq ? pose.currentSeq.animCls : null,
-                timeMs: Number(pose.animTime.toFixed(3)),
-                frameInfo: pose.lastFrameInfo || null,
-                skeletonRootTranslation: pose.skeleton.rootTr,
-                rootBone: {
-                    index: rootIdx,
-                    name: rootBone ? rootBone.name : '(unknown)',
-                    position: rootBone ? {
-                        x: Number(rootBone.position.x.toFixed(3)),
-                        y: Number(rootBone.position.y.toFixed(3)),
-                        z: Number(rootBone.position.z.toFixed(3))
-                    } : null,
-                    rotationQuat: rootBone ? {
-                        x: Number(rootBone.quaternion.x.toFixed(6)),
-                        y: Number(rootBone.quaternion.y.toFixed(6)),
-                        z: Number(rootBone.quaternion.z.toFixed(6)),
-                        w: Number(rootBone.quaternion.w.toFixed(6))
-                    } : null,
-                    rotationDegYXZ: rootBone ? {
-                        y: radToDeg(rootEuler.y),
-                        x: radToDeg(rootEuler.x),
-                        z: radToDeg(rootEuler.z)
-                    } : null
-                },
-                model: characterMesh ? {
-                    position: {
-                        x: Number(characterMesh.position.x.toFixed(3)),
-                        y: Number(characterMesh.position.y.toFixed(3)),
-                        z: Number(characterMesh.position.z.toFixed(3))
-                    },
-                    rotationDegYXZ: {
-                        y: radToDeg(modelEuler.y),
-                        x: radToDeg(modelEuler.x),
-                        z: radToDeg(modelEuler.z)
-                    },
-                    scale: {
-                        x: Number(characterMesh.scale.x.toFixed(3)),
-                        y: Number(characterMesh.scale.y.toFixed(3)),
-                        z: Number(characterMesh.scale.z.toFixed(3))
-                    }
-                } : null
-            };
-
-            console.log(`[PoseDebug] ${JSON.stringify(snapshot)}`);
-        }
-
-        function logRootSamples(sequence, pose) {
-            if (!sequence || !pose || !pose.skeleton || !pose.skeleton.rootNodes || pose.skeleton.rootNodes.length === 0) {
-                return;
-            }
-
-            const rootIdx = pose.skeleton.rootNodes[0];
-            const nodeIdxPos = sequence.nodeIndex.indexOf(rootIdx);
-            if (nodeIdxPos < 0) return; // root not animated in this sequence
-
-            const samples = [];
-            for (const frame of [0, 1]) {
-                if (frame >= sequence.numFrames) continue;
-                const sample = sequence.samples[frame * sequence.nodeIndex.length + nodeIdxPos];
-                if (!sample) continue;
-                samples.push({
-                    frame,
-                    position: {
-                        x: Number(sample.position.x.toFixed(3)),
-                        y: Number(sample.position.y.toFixed(3)),
-                        z: Number(sample.position.z.toFixed(3))
-                    },
-                    rotationQuat: {
-                        x: Number(sample.rotation.x.toFixed(6)),
-                        y: Number(sample.rotation.y.toFixed(6)),
-                        z: Number(sample.rotation.z.toFixed(6)),
-                        w: Number(sample.rotation.w.toFixed(6))
-                    },
-                    rotationDegYXZ: quatToEulerDegYXZ(sample.rotation)
-                });
-            }
-
-            if (samples.length && false) { // Disabled verbose logging
-                const payload = {
-                    tag: 'root-samples',
-                    anim: sequence.name || '(unnamed)',
-                    numFrames: sequence.numFrames,
-                    fps: sequence.fpsRate,
-                    rootNodeIndex: rootIdx,
-                    samples
-                };
-                console.log(`[PoseDebug] ${JSON.stringify(payload)}`);
-            }
         }
 
         // ====================================================================
@@ -649,8 +532,6 @@
                 this.animTime = 0;
                 this.numBones = skeleton.nodes.length;
                 this.lastFrameInfo = null;
-                this.debugLogCounter = 0;
-                this.debugJustStarted = false;
                 this.bindRot = [];
 
                 for (let i = 0; i < this.numBones; i++) {
@@ -666,11 +547,7 @@
                 this.currentSeq = sequence;
                 this.animTime = 0;
                 this.lastFrameInfo = null;
-                this.debugLogCounter = 3; // log a few frames to capture jumps
-                this.debugJustStarted = true;
                 console.log(`Started animation: ${sequence.name || '(unnamed)'}, ${sequence.numFrames} frames at ${sequence.fpsRate} FPS`);
-                logRootSamples(sequence, this);
-                logPoseDebug('start', this);
             }
 
             update(deltaTime) {
@@ -686,11 +563,6 @@
                 const updated = this.updateFrame(this.currentSeq, this.animTime);
                 if (updated) {
                     this.applyToSkeleton();
-                    if (this.debugLogCounter > 0) {
-                        logPoseDebug(this.debugJustStarted ? 'first-frame' : 'debug', this);
-                        this.debugLogCounter -= 1;
-                        this.debugJustStarted = false;
-                    }
                 }
                 return updated;
             }
@@ -1363,8 +1235,6 @@
                     // Do not offset modelGroup by rootTranslation; bones already include it
                     const rootNodeTranslation = new THREE.Vector3(0, 0, 0);
 
-                    if (false) console.log(`🎨 Root translation: (${rootNodeTranslation.x}, ${rootNodeTranslation.y}, ${rootNodeTranslation.z})`);
-
                     let renderedCount = 0;
                     for (let i = 0; i < softSkinCount; i++) {
                         const softSkinMesh = softSkinMeshes.get(i);
@@ -1374,10 +1244,6 @@
                         }
 
                         const processed = model.convertSoftSkinMeshToProcessedMesh(softSkinMesh);
-                        const vertexCount = processed.vertices.size() / 8;
-                        const triangleCount = processed.indices.size() / 3;
-
-                        if (false) console.log(`🎨 Soft-skin mesh ${i}: ${vertexCount} vertices, ${triangleCount} triangles`);
 
                         if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
                             console.warn(`⚠️ Soft-skin mesh ${i} has no geometry`);
@@ -1496,8 +1362,6 @@
                             }
                         }
 
-                        if (false) console.log(`🎨 Rendering attachment: ${attachmentName} (node index: ${hierarchyNodeIndex})`);
-
                         const processed = model.convertAttachmentToProcessedMesh(attachment);
                         if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
                             console.warn(`⚠️ Attachment ${attachmentName} has no geometry`);
@@ -1580,16 +1444,6 @@
             const hasSkinning = processed.boneWeights && processed.boneWeights.size() > 0;
             const skinIndices = hasSkinning ? new Float32Array(idxCount * 4) : null;
             const skinWeights = hasSkinning ? new Float32Array(idxCount * 4) : null;
-
-            // Disabled verbose logging
-            if (false) {
-                console.log('📊 Skin data lengths', {
-                    idxCount,
-                    vertFloats: processed.vertices.size ? processed.vertices.size() : 0,
-                    boneWeights: hasSkinning ? processed.boneWeights.size() : 0,
-                    boneIndices: hasSkinning ? processed.boneIndices.size() : 0,
-                });
-            }
 
             for (let i = 0; i < idxCount; i++) {
                 const vertIdx = processed.indices.get(i);
