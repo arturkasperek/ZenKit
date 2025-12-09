@@ -252,10 +252,6 @@
             return x + (y - x) * a;
         }
 
-        function degToRad(deg) {
-            return deg * Math.PI / 180.0;
-        }
-
         /**
          * Quaternion spherical linear interpolation
          * Port of OpenGothic's slerp function
@@ -306,42 +302,6 @@
             };
         }
 
-        /**
-         * Convert AnimationSample to THREE.Matrix4
-         * Port of OpenGothic's mkMatrix function
-         */
-        function mkMatrix(sample) {
-            const q = sample.rotation;
-            const p = sample.position;
-            const m = new THREE.Matrix4();
-            const te = m.elements;
-
-            const x = q.x, y = q.y, z = q.z, w = q.w;
-            const x2 = x + x, y2 = y + y, z2 = z + z;
-            const xx = x * x2, xy = x * y2, xz = x * z2;
-            const yy = y * y2, yz = y * z2, zz = z * z2;
-            const wx = w * x2, wy = w * y2, wz = w * z2;
-
-            te[0] = 1 - (yy + zz);
-            te[1] = xy + wz;
-            te[2] = xz - wy;
-            te[3] = 0;
-            te[4] = xy - wz;
-            te[5] = 1 - (xx + zz);
-            te[6] = yz + wx;
-            te[7] = 0;
-            te[8] = xz + wy;
-            te[9] = yz - wx;
-            te[10] = 1 - (xx + yy);
-            te[11] = 0;
-            te[12] = p.x;
-            te[13] = p.y;
-            te[14] = p.z;
-            te[15] = 1;
-
-            return m;
-        }
-
         // ====================================================================
         // SKELETON CLASS (Port of OpenGothic's Skeleton)
         // ====================================================================
@@ -352,7 +312,6 @@
                 this.rootNodes = [];
                 this.bones = []; // Array of THREE.Bone
                 this.rootTr = { x: 0, y: 0, z: 0 };
-                this.bindRotEuler = [];
 
                 const nodeCount = hierarchy.nodes.size();
 
@@ -384,15 +343,11 @@
 
                 // 3. Set Initial Bind Pose (Local Transforms)
                 // Bind pose matrices from ZenKit are already correct, don't convert them
-                this.bindPoseMatrices = [];
-                this.bindPoseQuaternions = [];
-                
                 for (let i = 0; i < this.nodes.length; i++) {
                     const node = this.nodes[i];
                     const bone = this.bones[i];
 
                     const mat = this.matrix4x4DataToMatrix4(node.transform);
-                    this.bindPoseMatrices.push(mat.clone());
 
                     // Decompose matrix to pos/quat/scale
                     const pos = new THREE.Vector3();
@@ -400,15 +355,9 @@
                     const scale = new THREE.Vector3();
                     mat.decompose(pos, quat, scale);
 
-                    // Store bind pose as-is (no conversion needed for bind pose)
-                    this.bindPoseQuaternions.push(quat.clone());
-
                     bone.position.copy(pos);
                     bone.quaternion.copy(quat);
                     bone.scale.copy(scale);
-
-                    const e = new THREE.Euler().setFromQuaternion(quat, 'YXZ');
-                    this.bindRotEuler.push({ x: e.x, y: e.y, z: e.z });
                 }
 
                 // 4. Apply Root Translation to Root Bones
@@ -444,15 +393,6 @@
                     te[i] = mat4Data.get(i);
                 }
                 return m;
-            }
-
-            findNode(name) {
-                for (let i = 0; i < this.nodes.length; i++) {
-                    if (this.nodes[i].name === name) {
-                        return i;
-                    }
-                }
-                return -1;
             }
         }
 
@@ -531,12 +471,9 @@
                 this.currentSeq = null;
                 this.animTime = 0;
                 this.numBones = skeleton.nodes.length;
-                this.lastFrameInfo = null;
-                this.bindRot = [];
 
                 for (let i = 0; i < this.numBones; i++) {
                     this.base.push(null);
-                    this.bindRot.push(skeleton.bones[i].quaternion.clone());
                 }
 
                 // Initial application (will leave bones in bind pose as base is all null)
@@ -546,7 +483,6 @@
             startAnim(sequence) {
                 this.currentSeq = sequence;
                 this.animTime = 0;
-                this.lastFrameInfo = null;
                 console.log(`Started animation: ${sequence.name || '(unnamed)'}, ${sequence.numFrames} frames at ${sequence.fpsRate} FPS`);
             }
 
@@ -590,16 +526,6 @@
 
                 const sampleA = frameA * idSize;
                 const sampleB = frameB * idSize;
-
-                this.lastFrameInfo = {
-                    frame: Number(frame.toFixed(3)),
-                    frameA,
-                    frameB,
-                    interp: Number(a.toFixed(3)),
-                    fps: fpsRate,
-                    numFrames,
-                    nodes: idSize
-                };
 
                 for (let i = 0; i < idSize; i++) {
                     const idx = sequence.nodeIndex[i];
@@ -1472,32 +1398,6 @@
                     skinWeights[i * 4 + 2] = processed.boneWeights.get(skinBase + 2);
                     skinWeights[i * 4 + 3] = processed.boneWeights.get(skinBase + 3);
                 }
-            }
-
-            // Debug first few vertices to verify weights/indices
-            const dbgN = Math.min(5, idxCount);
-            for (let i = 0; i < dbgN; i++) {
-                const vertIdx = processed.indices.get(i);
-                const vBase = vertIdx * 8;
-                const wBase = vertIdx * 4;
-                const posDbg = [
-                    processed.vertices.get(vBase + 0),
-                    processed.vertices.get(vBase + 1),
-                    processed.vertices.get(vBase + 2),
-                ];
-                const wDbg = hasSkinning ? [
-                    processed.boneWeights.get(wBase + 0),
-                    processed.boneWeights.get(wBase + 1),
-                    processed.boneWeights.get(wBase + 2),
-                    processed.boneWeights.get(wBase + 3),
-                ] : [];
-                const iDbg = hasSkinning ? [
-                    processed.boneIndices.get(wBase + 0),
-                    processed.boneIndices.get(wBase + 1),
-                    processed.boneIndices.get(wBase + 2),
-                    processed.boneIndices.get(wBase + 3),
-                ] : [];
-                console.log(`🧪 v${i} (idx ${vertIdx}) ${JSON.stringify({ posDbg, wDbg, iDbg })}`);
             }
 
             const geometry = new THREE.BufferGeometry();
