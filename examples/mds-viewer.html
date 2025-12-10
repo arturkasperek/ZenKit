@@ -1749,7 +1749,18 @@
             }
 
             try {
-                const tex = await loadCompiledTexAsDataTexture(texturePath);
+                let tex = await loadCompiledTexAsDataTexture(texturePath);
+                
+                // If texture not found, try fallback to C0 variant (most armors reference Cx that don't exist)
+                if (!tex && texturePath.includes('_C') && !texturePath.includes('_C0-C.TEX')) {
+                    const fallbackPath = texturePath.replace(/_C\d+(-C\.TEX)$/, '_C0$1');
+                    console.log(`   ⚠️ Texture not found, trying fallback: ${fallbackPath}`);
+                    tex = await loadCompiledTexAsDataTexture(fallbackPath);
+                    if (tex) {
+                        textureCache.set(texturePath, tex); // Cache under original name too
+                    }
+                }
+                
                 if (tex) {
                     textureCache.set(texturePath, tex);
                 }
@@ -1786,11 +1797,14 @@
 
         function tgaNameToCompiledUrl(name) {
             if (!name || typeof name !== 'string') return null;
-            const base = name.replace(/\.[^.]*$/, '').toUpperCase();
+            let base = name.replace(/\.[^.]*$/, '').toUpperCase();
+            
+            // Fix common typos in original Gothic assets
+            // NACKED -> NAKED (typo in some armor materials)
+            base = base.replace(/NACKED/g, 'NAKED');
             
             // Textures use the naming convention from the original assets
             // Each mesh/head model references its texture in the material
-            // No need to override - just use what the model specifies
             
             return `/public/game-assets/TEXTURES/_COMPILED/${base}-C.TEX`;
         }
