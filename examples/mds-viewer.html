@@ -209,6 +209,16 @@
                 </div>
 
                 <div class="info-section">
+                    <h2>Head/Face</h2>
+                    <div style="margin-bottom: 10px;">
+                        <button id="toggle-head-type" style="width: 100%; padding: 8px; cursor: pointer; background: #2a2a2a; color: #e0e0e0; border: 1px solid #4a9eff; border-radius: 4px;">
+                            Switch to Female Heads
+                        </button>
+                    </div>
+                    <div id="heads-list"></div>
+                </div>
+
+                <div class="info-section">
                     <h2>Disabled Animations</h2>
                     <div id="disabled-animations-list"></div>
                 </div>
@@ -245,6 +255,8 @@
         let skeletonHelper = null; // Visualize bones
         let boneLabels = []; // Sprites with bone ids
         let activeMeshName = null; // Currently selected mesh to load (null = default from MDS)
+        let activeHeadName = null; // Currently selected head (null = auto-detect)
+        let showFemaleHeads = false; // Toggle between male/female head lists
 
         // Asset caches
         const meshCache = new Map();
@@ -771,6 +783,69 @@
             renderer.setSize(canvas.clientWidth, canvas.clientHeight);
         }
 
+        function populateHeadsList() {
+            const headsList = document.getElementById('heads-list');
+            headsList.innerHTML = '';
+
+            // Define available heads
+            const maleHeads = [
+                'HUM_HEAD',
+                'HUM_HEAD_BALD',
+                'HUM_HEAD_FATBALD',
+                'HUM_HEAD_FIGHTER',
+                'HUM_HEAD_PONY',
+                'HUM_HEAD_PSIONIC',
+                'HUM_HEAD_THIEF'
+            ];
+
+            const femaleHeads = [
+                'HUM_HEAD_BABE',
+                'HUM_HEAD_BABE1',
+                'HUM_HEAD_BABE2',
+                'HUM_HEAD_BABE3',
+                'HUM_HEAD_BABE4',
+                'HUM_HEAD_BABE5',
+                'HUM_HEAD_BABE6',
+                'HUM_HEAD_BABE7',
+                'HUM_HEAD_BABE8'
+            ];
+
+            const heads = showFemaleHeads ? femaleHeads : maleHeads;
+
+            // Add "Auto" option
+            const autoItem = document.createElement('div');
+            autoItem.className = 'info-item clickable';
+            autoItem.textContent = '🔄 Auto (Default)';
+            if (!activeHeadName) {
+                autoItem.classList.add('active');
+            }
+            autoItem.addEventListener('click', async () => {
+                activeHeadName = null;
+                console.log('🔄 Head set to auto-detect');
+                await loadMdsFile(DEFAULT_MDS, FORCE_FEMALE_BODY ? DEFAULT_OVERLAY : null);
+            });
+            headsList.appendChild(autoItem);
+
+            // Add head options
+            heads.forEach(headName => {
+                const item = document.createElement('div');
+                item.className = 'info-item clickable';
+                item.textContent = headName;
+                
+                if (activeHeadName === headName) {
+                    item.classList.add('active');
+                }
+                
+                item.addEventListener('click', async () => {
+                    activeHeadName = headName;
+                    console.log(`🎭 Selected head: ${headName}`);
+                    await loadMdsFile(DEFAULT_MDS, FORCE_FEMALE_BODY ? DEFAULT_OVERLAY : null);
+                });
+                
+                headsList.appendChild(item);
+            });
+        }
+
         async function initZenKit() {
             try {
                 const ZenKitModule = (await import('../build-wasm/wasm/zenkit.mjs')).default;
@@ -779,6 +854,17 @@
 
                 // Initialize Three.js
                 initThreeJS();
+
+                // Setup head type toggle
+                const toggleHeadBtn = document.getElementById('toggle-head-type');
+                toggleHeadBtn.addEventListener('click', () => {
+                    showFemaleHeads = !showFemaleHeads;
+                    toggleHeadBtn.textContent = showFemaleHeads ? 'Switch to Male Heads' : 'Switch to Female Heads';
+                    populateHeadsList();
+                });
+
+                // Initial head list
+                populateHeadsList();
 
                 // Load base MDS and optional overlay
                 await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
@@ -1745,9 +1831,12 @@
                 // If we ever discover a missing asset, disable further attempts
                 const markUnavailable = () => { headMeshesAvailable = false; };
 
-                // Choose head based on body type
+                // Use user-selected head if available
                 let headMeshNames;
-                if (FORCE_FEMALE_BODY) {
+                if (activeHeadName) {
+                    headMeshNames = [activeHeadName];
+                    console.log(`🎭 Loading user-selected head: ${activeHeadName}`);
+                } else if (FORCE_FEMALE_BODY) {
                     // Hilda uses HUM_HEAD_BABE8
                     headMeshNames = [
                         'HUM_HEAD_BABE8',
@@ -2041,30 +2130,8 @@
                         pose.startAnim(seq);
                         console.log(`Auto-started animation: ${firstAnimName}`);
 
-                        // Force initial bone matrix update
-                        if (characterMesh) {
-                            const materials = Array.isArray(characterMesh.material)
-                                ? characterMesh.material
-                                : [characterMesh.material];
-                            const boneMatrices = pose.getBoneMatrices();
-
-                            for (const material of materials) {
-                                if (material && material.uniforms && material.uniforms.boneMatrices) {
-                                    const uniformArray = material.uniforms.boneMatrices.value;
-                                    if (uniformArray && window.baseTranslation) {
-                                        for (let i = 0; i < Math.min(boneMatrices.length, uniformArray.length); i++) {
-                                            if (boneMatrices[i]) {
-                                                uniformArray[i].copy(boneMatrices[i]);
-                                                uniformArray[i].elements[12] += window.baseTranslation.x;
-                                                uniformArray[i].elements[13] += window.baseTranslation.y;
-                                                uniformArray[i].elements[14] += window.baseTranslation.z;
-                                            }
-                                        }
-                                        material.uniformsNeedUpdate = true;
-                                    }
-                                }
-                            }
-                        }
+                        // Note: Three.js SkinnedMesh handles bone matrices automatically
+                        // No manual matrix update needed
                     }
                 });
             }
