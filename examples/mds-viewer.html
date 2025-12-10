@@ -219,6 +219,21 @@
                 </div>
 
                 <div class="info-section">
+                    <h2>Animation Sequence</h2>
+                    <div style="margin-bottom: 10px;">
+                        <button id="play-sequence" style="width: 100%; padding: 8px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-weight: bold;">
+                            ▶ Play Sequence
+                        </button>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <button id="clear-sequence" style="width: 100%; padding: 6px; cursor: pointer; background: #2a2a2a; color: #e0e0e0; border: 1px solid #666; border-radius: 4px;">
+                            🗑️ Clear Sequence
+                        </button>
+                    </div>
+                    <div id="sequence-list" style="max-height: 200px; overflow-y: auto;"></div>
+                </div>
+
+                <div class="info-section">
                     <h2>Disabled Animations</h2>
                     <div id="disabled-animations-list"></div>
                 </div>
@@ -256,6 +271,8 @@
         let activeMeshName = null; // Currently selected mesh to load (null = default from MDS)
         let activeHeadName = null; // Currently selected head (null = auto-detect)
         let showFemaleHeads = false; // Toggle between male/female head lists
+        let animationSequence = []; // Queue of animations to play in sequence
+        let isPlayingSequence = false; // Whether we're currently playing a sequence
 
         // Available head models
         const MALE_HEADS = [
@@ -844,6 +861,103 @@
             });
         }
 
+        function addToSequence(animationName, mdsAnim) {
+            animationSequence.push({ name: animationName, mdsAnim });
+            updateSequenceUI();
+            console.log(`➕ Added to sequence: ${animationName} (total: ${animationSequence.length})`);
+        }
+
+        function clearSequence() {
+            animationSequence = [];
+            isPlayingSequence = false;
+            updateSequenceUI();
+            console.log('🗑️ Sequence cleared');
+        }
+
+        function updateSequenceUI() {
+            const sequenceList = document.getElementById('sequence-list');
+            if (animationSequence.length === 0) {
+                sequenceList.innerHTML = '<div style="color: #888; font-size: 11px; padding: 8px;">No animations in sequence. Click on animations below to add them.</div>';
+                return;
+            }
+
+            sequenceList.innerHTML = '';
+            animationSequence.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'info-item';
+                div.style.display = 'flex';
+                div.style.justifyContent = 'space-between';
+                div.style.alignItems = 'center';
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = `${index + 1}. ${item.name}`;
+                nameSpan.style.flex = '1';
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.textContent = '✕';
+                removeBtn.style.cssText = 'background: #ff4444; border: none; color: white; padding: 2px 6px; cursor: pointer; border-radius: 3px; font-size: 12px;';
+                removeBtn.addEventListener('click', () => {
+                    animationSequence.splice(index, 1);
+                    updateSequenceUI();
+                    console.log(`➖ Removed from sequence: ${item.name}`);
+                });
+                
+                div.appendChild(nameSpan);
+                div.appendChild(removeBtn);
+                sequenceList.appendChild(div);
+            });
+        }
+
+        async function playSequence() {
+            if (animationSequence.length === 0) {
+                console.log('⚠️ No animations in sequence');
+                return;
+            }
+
+            if (isPlayingSequence) {
+                console.log('⚠️ Sequence already playing');
+                return;
+            }
+
+            isPlayingSequence = true;
+            console.log(`▶️ Starting sequence playback (${animationSequence.length} animations)`);
+
+            for (let i = 0; i < animationSequence.length; i++) {
+                if (!isPlayingSequence) {
+                    console.log('⏹️ Sequence playback stopped');
+                    break;
+                }
+
+                const item = animationSequence[i];
+                console.log(`▶️ [${i + 1}/${animationSequence.length}] Playing: ${item.name}`);
+                
+                // Load the animation
+                const seq = await loadAnimation(item.name, item.mdsAnim, currentMdsBaseName.toUpperCase());
+                if (seq && pose) {
+                    // Force animation to NOT loop in sequence (play once)
+                    const originalAnimCls = seq.animCls;
+                    seq.animCls = 'Once'; // Override to play once
+                    
+                    // Start animation and immediately update to first frame to avoid jump
+                    pose.startAnim(seq);
+                    pose.animTime = 0; // Ensure we start at frame 0
+                    pose.update(0); // Force immediate update to first frame
+                    
+                    // Wait for animation to complete
+                    const duration = seq.totalTime();
+                    await new Promise(resolve => setTimeout(resolve, duration));
+                    
+                    // Restore original animation class for future non-sequence plays
+                    seq.animCls = originalAnimCls;
+                } else {
+                    console.warn(`⚠️ Failed to load animation: ${item.name}`);
+                }
+            }
+
+            isPlayingSequence = false;
+            console.log('✅ Sequence playback completed');
+        }
+
         async function initZenKit() {
             try {
                 const ZenKitModule = (await import('../build-wasm/wasm/zenkit.mjs')).default;
@@ -861,8 +975,20 @@
                     populateHeadsList();
                 });
 
-                // Initial head list
+                // Setup animation sequence controls
+                const playSequenceBtn = document.getElementById('play-sequence');
+                playSequenceBtn.addEventListener('click', () => {
+                    playSequence();
+                });
+
+                const clearSequenceBtn = document.getElementById('clear-sequence');
+                clearSequenceBtn.addEventListener('click', () => {
+                    clearSequence();
+                });
+
+                // Initial head list and sequence UI
                 populateHeadsList();
+                updateSequenceUI();
 
                 // Load base MDS and optional overlay
                 await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
@@ -1991,8 +2117,13 @@
                             <div><span class="info-label">FPS:</span> <span class="info-value">${fps.toFixed(2)}</span></div>
                             <div><span class="info-label">Speed:</span> <span class="info-value">${speed.toFixed(2)}</span></div>
                         </div>
-                        <div style="margin-top: 8px; font-size: 0.85em; color: #888;">
-                            💡 Click to play animation
+                        <div style="margin-top: 8px; display: flex; gap: 5px;">
+                            <button class="play-btn" style="flex: 1; padding: 6px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-size: 11px;">
+                                ▶ Play
+                            </button>
+                            <button class="add-seq-btn" style="flex: 1; padding: 6px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-size: 11px;">
+                                ➕ Add to Sequence
+                            </button>
                         </div>
                     `;
 
@@ -2000,24 +2131,25 @@
                     animItem.dataset.animationName = name;
                     animItem.dataset.animationBase = manBase;
 
-                    // Add click handler to play animation
-                    animItem.addEventListener('click', async () => {
-                        if (animItem.classList.contains('active')) {
-                            // Stop animation by clearing current sequence
-                            if (pose) {
-                                pose.currentSeq = null;
-                            }
-                            animItem.classList.remove('active');
-                        } else {
-                            // Load and play animation
-                            const mdsAnim = {
-                                name: name,
-                                flags: flags,
-                                next: next
-                            };
-                            await loadAnimation(name, mdsAnim, manBase);
-                            playAnimation(name);
-                        }
+                    const mdsAnim = {
+                        name: name,
+                        flags: flags,
+                        next: next
+                    };
+
+                    // Add click handler to play button
+                    const playBtn = animItem.querySelector('.play-btn');
+                    playBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await loadAnimation(name, mdsAnim, manBase);
+                        playAnimation(name);
+                    });
+
+                    // Add click handler to add to sequence button
+                    const addSeqBtn = animItem.querySelector('.add-seq-btn');
+                    addSeqBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        addToSequence(name, mdsAnim);
                     });
 
                     animationsList.appendChild(animItem);
@@ -2055,30 +2187,36 @@
                             <div><span class="info-label">FPS:</span> <span class="info-value">${fps.toFixed(2)}</span></div>
                             <div><span class="info-label">Speed:</span> <span class="info-value">${speed.toFixed(2)}</span></div>
                         </div>
-                        <div style="margin-top: 8px; font-size: 0.85em; color: #888;">
-                            💡 Click to play animation (overlay)
+                        <div style="margin-top: 8px; display: flex; gap: 5px;">
+                            <button class="play-btn" style="flex: 1; padding: 6px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-size: 11px;">
+                                ▶ Play
+                            </button>
+                            <button class="add-seq-btn" style="flex: 1; padding: 6px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-size: 11px;">
+                                ➕ Add to Sequence
+                            </button>
                         </div>
                     `;
 
                     animItem.dataset.animationName = name;
                     animItem.dataset.animationBase = manBase;
 
-                    animItem.addEventListener('click', async () => {
-                        if (animItem.classList.contains('active')) {
-                            // Stop animation by clearing current sequence
-                            if (pose) {
-                                pose.currentSeq = null;
-                            }
-                            animItem.classList.remove('active');
-                        } else {
-                            const mdsAnim = {
-                                name: name,
-                                flags: flags,
-                                next: next
-                            };
-                            await loadAnimation(name, mdsAnim, manBase);
-                            playAnimation(name);
-                        }
+                    const mdsAnim = {
+                        name: name,
+                        flags: flags,
+                        next: next
+                    };
+
+                    const playBtn = animItem.querySelector('.play-btn');
+                    playBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await loadAnimation(name, mdsAnim, manBase);
+                        playAnimation(name);
+                    });
+
+                    const addSeqBtn = animItem.querySelector('.add-seq-btn');
+                    addSeqBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        addToSequence(name, mdsAnim);
                     });
 
                     animationsList.appendChild(animItem);
