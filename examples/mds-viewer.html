@@ -242,9 +242,8 @@
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
         let pose = null; // Custom Pose class instance
-        const FORCE_FEMALE_BODY = false; // Hardcode female rig/mesh
         const DEFAULT_MDS = 'HumanS.mds';
-        const DEFAULT_OVERLAY = 'MDS_OVERLAY/Humans_Babe.mds';
+        const DEFAULT_OVERLAY = null; // No default overlay
         let currentMdsBaseName = 'HumanS'; // Store the MDS base name (from MDS file)
         let currentSkeletonBaseName = ''; // Store current skeleton base for render
         let overlayAnimations = []; // Animations from overlay MDS (with source base)
@@ -819,10 +818,10 @@
                 autoItem.classList.add('active');
             }
             autoItem.addEventListener('click', async () => {
-                activeHeadName = null;
-                console.log('🔄 Head set to auto-detect');
-                await loadMdsFile(DEFAULT_MDS, FORCE_FEMALE_BODY ? DEFAULT_OVERLAY : null);
-            });
+                    activeHeadName = null;
+                    console.log('🔄 Head set to auto-detect');
+                    await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+                });
             headsList.appendChild(autoItem);
 
             // Add head options
@@ -838,7 +837,7 @@
                 item.addEventListener('click', async () => {
                     activeHeadName = headName;
                     console.log(`🎭 Selected head: ${headName}`);
-                    await loadMdsFile(DEFAULT_MDS, FORCE_FEMALE_BODY ? DEFAULT_OVERLAY : null);
+                    await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
                 });
                 
                 headsList.appendChild(item);
@@ -960,43 +959,26 @@
                 const mdsSkeletonName = mds.getSkeletonName();
                 const mdsFileOnly = mdsFileName.split('/').pop() || mdsFileName;
 
-                // Decide if we must force female rig (e.g., overlay without skeleton or specific overlay file)
-                const forcedMdmName = 'HUM_BODY_BABE0';
-                // Always use base humans hierarchy to match original game behavior
-                const forcedMdhName = 'HUMANS';
-                const isBabeOverlay = mdsFileName.toLowerCase().includes('mds_overlay/humans_babe');
-                const useForced = FORCE_FEMALE_BODY || !mdsSkeletonName || isBabeOverlay;
-
                 let skeletonBaseName;
                 
-                // If user selected a specific mesh, use it
+                // If user selected a specific mesh from UI, use it
                 if (activeMeshName) {
                     skeletonBaseName = activeMeshName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
                     console.log(`🎯 Using user-selected mesh: ${skeletonBaseName}`);
-                } else if (useForced) {
-                    skeletonBaseName = forcedMdmName;
-                } else {
+                } else if (mdsSkeletonName) {
+                    // Use skeleton from MDS file
                     skeletonBaseName = mdsSkeletonName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
+                } else {
+                    // Fallback to default human body
+                    skeletonBaseName = 'HUM_BODY_NAKED0';
+                    console.log('⚠️ No skeleton defined in MDS, using default: HUM_BODY_NAKED0');
                 }
                 
-                // Override for testing Raven Armor (male) - only if no user selection
-                if (!activeMeshName && !FORCE_FEMALE_BODY && skeletonBaseName === 'HUM_BODY_NAKED0') {
-                    skeletonBaseName = 'ARMOR_RAVEN_ADDON';
-                    console.log('🦅 Testing with Raven Armor instead of naked body');
-                }
-                
-                const mdsBaseName = useForced
-                    ? forcedMdhName
-                    : mdsFileOnly.replace(/\.(MDS|MSB)$/i, '').toUpperCase();
+                const mdsBaseName = mdsFileOnly.replace(/\.(MDS|MSB)$/i, '').toUpperCase();
                 const skeletonName = `${skeletonBaseName}.MDM`;
                 currentSkeletonBaseName = skeletonBaseName;
 
-                updateStatus(
-                    useForced
-                        ? `📦 Loading skeleton mesh (forced): ${forcedMdhName}.MDH + ${forcedMdmName}.MDM`
-                        : `📦 Loading skeleton mesh: ${skeletonName}...`,
-                    'loading'
-                );
+                updateStatus(`📦 Loading skeleton mesh: ${skeletonName}...`, 'loading');
 
                 // Load MDH + MDM directly (MDL not available in provided assets)
                 let model = null;
@@ -1804,19 +1786,11 @@
 
         function tgaNameToCompiledUrl(name) {
             if (!name || typeof name !== 'string') return null;
-            let base = name.replace(/\.[^.]*$/, '').toUpperCase();
+            const base = name.replace(/\.[^.]*$/, '').toUpperCase();
             
-            // Override textures for female body (Hilda)
-            // Hilda: face=144 (FACEBABE_N_WHITECLOTH), body=5 (BODYTEXBABE_N)
-            if (FORCE_FEMALE_BODY) {
-                if (base.includes('HUM_BODY')) {
-                    base = 'HUM_BODY_NAKED_V5_C0';
-                    console.log(`🎨 Using Hilda body texture: ${base}`);
-                } else if (base.includes('HUM_HEAD')) {
-                    base = 'HUM_HEAD_V144_C0';
-                    console.log(`🎨 Using Hilda head texture: ${base}`);
-                }
-            }
+            // Textures use the naming convention from the original assets
+            // Each mesh/head model references its texture in the material
+            // No need to override - just use what the model specifies
             
             return `/public/game-assets/TEXTURES/_COMPILED/${base}-C.TEX`;
         }
@@ -1830,28 +1804,19 @@
                 // If we ever discover a missing asset, disable further attempts
                 const markUnavailable = () => { headMeshesAvailable = false; };
 
-                // Use user-selected head if available
+                // Use user-selected head if available, otherwise try common defaults
                 let headMeshNames;
                 if (activeHeadName) {
                     headMeshNames = [activeHeadName];
                     console.log(`🎭 Loading user-selected head: ${activeHeadName}`);
-                } else if (FORCE_FEMALE_BODY) {
-                    // Hilda uses HUM_HEAD_BABE8
-                    headMeshNames = [
-                        'HUM_HEAD_BABE8',
-                        'HUM_HEAD_BABE',
-                        'HUM_HEAD_BABE1',
-                        'HUM_HEAD_BABE2'
-                    ];
-                    console.log('🙋‍♀️ Loading female head (Hilda): HUM_HEAD_BABE8');
                 } else {
-                    // Male head
+                    // Try common default heads (male variants most common)
                     headMeshNames = [
                         'HUM_HEAD',
-                        'HUM_HEAD_BABE',
-                        'HUM_HEAD_BABE1',
-                        'HUM_HEAD_BABE2'
+                        'HUM_HEAD_BALD',
+                        'HUM_HEAD_FIGHTER'
                     ];
+                    console.log('🔄 Auto-loading default head');
                 }
 
                 for (const headName of headMeshNames) {
@@ -1945,7 +1910,7 @@
                         activeMeshName = meshName;
                         console.log(`🎯 Selected mesh: ${meshName}`);
                         // Reload the model with selected mesh
-                        await loadMdsFile(DEFAULT_MDS, FORCE_FEMALE_BODY ? DEFAULT_OVERLAY : null);
+                        await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
                     });
                     
                     meshesList.appendChild(item);
