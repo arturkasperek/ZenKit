@@ -1446,6 +1446,10 @@
                         if (hasSkinning && skeleton) {
                             meshObj = new THREE.SkinnedMesh(geometry, material);
 
+                            // Disable frustum culling for animated characters
+                            // (bounding box doesn't update during animation, causing mesh to disappear)
+                            meshObj.frustumCulled = false;
+
                             // Add root bones to the mesh (or scene) to be part of the hierarchy
                             // We must add the ACTUAL root bones, not just bones[0]
                             for (const rootIdx of skeleton.rootNodes) {
@@ -1571,6 +1575,10 @@
                     skeletonHelper = new THREE.SkeletonHelper(modelMesh);
                     skeletonHelper.material.color = new THREE.Color(0x00ff00);
                     skeletonHelper.material.linewidth = 2;
+                    
+                    // Disable frustum culling for skeleton helper (same reason as SkinnedMesh)
+                    skeletonHelper.frustumCulled = false;
+                    
                     scene.add(skeletonHelper);
 
                     // Add labels to each bone for easier identification
@@ -1984,6 +1992,9 @@
 
                         const { geometry, material } = await buildSkinnedMeshGeometry(processed, skeleton);
                         const headMesh = new THREE.Mesh(geometry, material);
+                        
+                        // Disable frustum culling for head (attached to animated bone)
+                        headMesh.frustumCulled = false;
 
                         // Attach head mesh directly to the head bone
                         if (skeleton && skeleton.bones && headNodeIndex >= 0 && headNodeIndex < skeleton.bones.length) {
