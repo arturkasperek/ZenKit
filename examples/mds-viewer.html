@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZenKit MDS Viewer</title>
+    <title>ZenKit MDS Viewer (CPU Skinning)</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -189,6 +189,12 @@
 
         <div class="info-panel">
             <h1>ZenKit MDS Viewer</h1>
+            <div style="background: #1a4a1a; padding: 10px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #4aff4a;">
+                <div style="color: #aaffaa; font-size: 0.9em;">
+                    <strong>🖥️ CPU Skinning Mode</strong><br>
+                    <span style="font-size: 0.85em;">Using original Gothic engine approach - vertex transformations on CPU</span>
+                </div>
+            </div>
 
             <div id="content" style="display: none;">
                 <div class="info-section">
@@ -253,7 +259,8 @@
         let ZenKit = null;
         let scene, camera, renderer;
         let modelMesh = null;
-        let characterMesh = null; // The skinned mesh
+        let characterMesh = null; // The CPU-skinned mesh
+        let cpuSkinningData = null; // Data needed for CPU skinning
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
         let pose = null; // Custom Pose class instance
@@ -633,16 +640,87 @@
                     }
                 }
 
+                // Update bone world matrices (needed for CPU skinning)
                 for (const rootIdx of this.skeleton.rootNodes) {
                     this.skeleton.bones[rootIdx].updateMatrixWorld(true);
                 }
-                if (characterMesh && characterMesh.skeleton) {
-                    characterMesh.skeleton.update();
-                }
+                
                 if (skeletonHelper && typeof skeletonHelper.update === 'function') {
                     skeletonHelper.update();
                 }
             }
+        }
+
+        // ====================================================================
+        // CPU SKINNING (Port of Gothic's RenderSoftSkin approach)
+        // ====================================================================
+        
+        /**
+         * Apply CPU skinning - transforms vertices using bone matrices on CPU
+         * This matches the original Gothic engine's approach
+         */
+        function applyCPUSkinning() {
+            if (!cpuSkinningData || !skeleton) return;
+            
+            const { geometry, vertexWeights, basePositions, baseNormals } = cpuSkinningData;
+            const posAttribute = geometry.getAttribute('position');
+            const normalAttribute = geometry.getAttribute('normal');
+            
+            // Get bone matrices (current pose) and inverse bind matrices
+            const boneMatrices = skeleton.bones.map(bone => bone.matrixWorld);
+            const boneInverses = skeleton.threeSkeleton.boneInverses; // Bind pose inverses
+            
+            // Transform each vertex (Gothic's approach with proper skinning math)
+            for (let i = 0; i < basePositions.length / 3; i++) {
+                const weights = vertexWeights[i];
+                if (!weights || weights.length === 0) continue;
+                
+                // Get base vertex data (in bind pose)
+                const basePos = new THREE.Vector3(
+                    basePositions[i * 3 + 0],
+                    basePositions[i * 3 + 1],
+                    basePositions[i * 3 + 2]
+                );
+                const baseNormal = new THREE.Vector3(
+                    baseNormals[i * 3 + 0],
+                    baseNormals[i * 3 + 1],
+                    baseNormals[i * 3 + 2]
+                );
+                
+                // Accumulate weighted transforms (Gothic's N-Link approach)
+                const resultPos = new THREE.Vector3(0, 0, 0);
+                const resultNormal = new THREE.Vector3(0, 0, 0);
+                
+                for (const { boneIndex, weight } of weights) {
+                    if (boneIndex >= boneMatrices.length) continue;
+                    
+                    // Proper skinning: Vertex -> Inverse Bind -> Current Bone
+                    // This transforms from mesh space -> bone space -> animated space
+                    const skinMatrix = new THREE.Matrix4();
+                    skinMatrix.multiplyMatrices(boneMatrices[boneIndex], boneInverses[boneIndex]);
+                    
+                    // Transform position
+                    const transformedPos = basePos.clone().applyMatrix4(skinMatrix);
+                    resultPos.addScaledVector(transformedPos, weight);
+                    
+                    // Transform normal (rotation only)
+                    const mat3 = new THREE.Matrix3().setFromMatrix4(skinMatrix);
+                    const transformedNormal = baseNormal.clone().applyMatrix3(mat3);
+                    resultNormal.addScaledVector(transformedNormal, weight);
+                }
+                
+                // Write back to geometry
+                posAttribute.setXYZ(i, resultPos.x, resultPos.y, resultPos.z);
+                normalAttribute.setXYZ(i, resultNormal.x, resultNormal.y, resultNormal.z);
+            }
+            
+            // Mark attributes as needing update
+            posAttribute.needsUpdate = true;
+            normalAttribute.needsUpdate = true;
+            
+            // Force geometry update
+            if (geometry.boundingBox) geometry.computeBoundingBox();
+            if (geometry.boundingSphere) geometry.computeBoundingSphere();
         }
 
         function updateStatus(message, type = 'loading') {
@@ -799,10 +877,12 @@
 
                 updateMovement();
 
-                // Update pose animation
+                // Update pose animation and apply CPU skinning
                 if (pose) {
                     const updated = pose.update(deltaTime);
-                    // No need to manually update uniforms, Three.js SkinnedMesh handles it
+                    if (updated && cpuSkinningData) {
+                        applyCPUSkinning();
+                    }
                 }
                 if (skeletonHelper && typeof skeletonHelper.update === 'function') {
                     skeletonHelper.update();
@@ -966,6 +1046,12 @@
 
                 // Initialize Three.js
                 initThreeJS();
+
+                console.log('🖥️ ==============================================');
+                console.log('🖥️ CPU SKINNING MODE ENABLED');
+                console.log('🖥️ Using original Gothic engine approach');
+                console.log('🖥️ Vertex transformations performed on CPU');
+                console.log('🖥️ ==============================================');
 
                 // Setup head type toggle
                 const toggleHeadBtn = document.getElementById('toggle-head-type');
@@ -1272,32 +1358,6 @@
                 // Get hierarchy to build skeleton
                 const hierarchy = model.getHierarchy();
 
-                // Load reference model (HUM_BODY_NAKED0) for offset calculation
-                let referenceModel = null;
-                let referenceMesh = null;
-                try {
-                    const refMdmPath = `/public/game-assets/ANIMS/_COMPILED/HUM_BODY_NAKED0.MDM`;
-                    const refResponse = await fetch(refMdmPath);
-                    if (refResponse.ok) {
-                        const refBuffer = await refResponse.arrayBuffer();
-                        const refUint8Array = new Uint8Array(refBuffer);
-                        const refMeshLoader = ZenKit.createModelMeshLoader();
-                        const refLoadResult = refMeshLoader.loadFromArray(refUint8Array);
-                        if (refLoadResult && refLoadResult.success) {
-                            referenceModel = ZenKit.createModel();
-                            referenceModel.setMesh(refMeshLoader.getMesh());
-                            const refMeshes = referenceModel.getSoftSkinMeshes();
-                            if (refMeshes.size() > 0) {
-                                referenceMesh = refMeshes.get(0);
-                                console.log('✅ Loaded reference model (HUM_BODY_NAKED0) for offset calculation');
-                            }
-                        }
-                    }
-                } catch (err) {
-                    console.warn('⚠️ Could not load reference model:', err);
-                }
-
-
                 // Build custom Skeleton class (mimics OpenGothic)
                 skeleton = new Skeleton(hierarchy);
 
@@ -1429,38 +1489,25 @@
 
                         const { geometry, material, hasSkinning } = await buildSkinnedMeshGeometry(processed, skeleton);
 
-                        // Calculate automatic geometry offset relative to reference model
-                        // (Gothic CPU skinning vs Three.js GPU skinning difference)
-                        const geometryOffset = referenceMesh 
-                            ? model.calculateGeometryOffset(softSkinMesh, hierarchy, referenceMesh)
-                            : model.calculateGeometryOffset(softSkinMesh, hierarchy, null);
-                        
-                        if (geometryOffset && Math.abs(geometryOffset.z) > 0.1) {
-                            // Apply ONLY Z-axis offset (main difference between models)
-                            // X and Y offsets can cause clipping issues
-                            geometry.translate(0, 0, -geometryOffset.z);
-                            console.log(`   🔧 Auto-applied Z-axis offset: ${(-geometryOffset.z).toFixed(2)} (original: X=${geometryOffset.x.toFixed(2)}, Y=${geometryOffset.y.toFixed(2)}, Z=${geometryOffset.z.toFixed(2)})`);
-                        }
+                        // No geometry offset needed - we're using CPU skinning just like Gothic!
 
                         let meshObj;
                         if (hasSkinning && skeleton) {
-                            meshObj = new THREE.SkinnedMesh(geometry, material);
+                            // Use regular Mesh for CPU skinning (not SkinnedMesh)
+                            meshObj = new THREE.Mesh(geometry, material);
 
                             // Disable frustum culling for animated characters
-                            // (bounding box doesn't update during animation, causing mesh to disappear)
                             meshObj.frustumCulled = false;
 
-                            // Add root bones to the mesh (or scene) to be part of the hierarchy
-                            // We must add the ACTUAL root bones, not just bones[0]
+                            // Add root bones to the scene (for skeleton helper visualization)
                             for (const rootIdx of skeleton.rootNodes) {
                                 if (modelGroup.children.indexOf(skeleton.bones[rootIdx]) === -1) {
                                     modelGroup.add(skeleton.bones[rootIdx]);
                                 }
                             }
 
-                            meshObj.bind(skeleton.threeSkeleton);
                             characterMesh = meshObj; // Store reference
-                            console.log(`   ✅ Created skinned mesh for soft-skin mesh ${i}`);
+                            console.log(`   ✅ Created CPU-skinned mesh for soft-skin mesh ${i} (Gothic engine approach)`);
                         } else {
                             meshObj = new THREE.Mesh(geometry, material);
                             console.log(`   ℹ️ Created static mesh for soft-skin mesh ${i} (skinning: ${hasSkinning})`);
@@ -1614,49 +1661,71 @@
             const normals = new Float32Array(idxCount * 3);
             const uvs = new Float32Array(idxCount * 2);
 
-            // Skinning data
+            // For CPU skinning: store base positions, normals, and weight data
             const hasSkinning = processed.boneWeights && processed.boneWeights.size() > 0;
-            const skinIndices = hasSkinning ? new Float32Array(idxCount * 4) : null;
-            const skinWeights = hasSkinning ? new Float32Array(idxCount * 4) : null;
+            
+            // IMPORTANT: For CPU skinning, we need UNIQUE vertices, not indexed!
+            // Gothic processes each vertex independently with its bone weights
+            const numUniqueVerts = idxCount; // After index expansion
+            const basePositions = new Float32Array(numUniqueVerts * 3);
+            const baseNormals = new Float32Array(numUniqueVerts * 3);
+            const vertexWeights = []; // Array of {boneIndex, weight} arrays per UNIQUE vertex
 
             for (let i = 0; i < idxCount; i++) {
                 const vertIdx = processed.indices.get(i);
                 const vertBase = vertIdx * 8;
 
-                positions[i * 3 + 0] = processed.vertices.get(vertBase + 0);
-                positions[i * 3 + 1] = processed.vertices.get(vertBase + 1);
-                positions[i * 3 + 2] = processed.vertices.get(vertBase + 2);
+                // Store base positions and normals (these are in BIND POSE, not animated)
+                basePositions[i * 3 + 0] = processed.vertices.get(vertBase + 0);
+                basePositions[i * 3 + 1] = processed.vertices.get(vertBase + 1);
+                basePositions[i * 3 + 2] = processed.vertices.get(vertBase + 2);
 
-                normals[i * 3 + 0] = processed.vertices.get(vertBase + 3);
-                normals[i * 3 + 1] = processed.vertices.get(vertBase + 4);
-                normals[i * 3 + 2] = processed.vertices.get(vertBase + 5);
+                baseNormals[i * 3 + 0] = processed.vertices.get(vertBase + 3);
+                baseNormals[i * 3 + 1] = processed.vertices.get(vertBase + 4);
+                baseNormals[i * 3 + 2] = processed.vertices.get(vertBase + 5);
+                
+                // Copy to working arrays (will be updated by CPU skinning)
+                positions[i * 3 + 0] = basePositions[i * 3 + 0];
+                positions[i * 3 + 1] = basePositions[i * 3 + 1];
+                positions[i * 3 + 2] = basePositions[i * 3 + 2];
+
+                normals[i * 3 + 0] = baseNormals[i * 3 + 0];
+                normals[i * 3 + 1] = baseNormals[i * 3 + 1];
+                normals[i * 3 + 2] = baseNormals[i * 3 + 2];
 
                 uvs[i * 2 + 0] = processed.vertices.get(vertBase + 6);
                 uvs[i * 2 + 1] = processed.vertices.get(vertBase + 7);
 
                 if (hasSkinning) {
                     const skinBase = vertIdx * 4;
-                    skinIndices[i * 4 + 0] = processed.boneIndices.get(skinBase + 0);
-                    skinIndices[i * 4 + 1] = processed.boneIndices.get(skinBase + 1);
-                    skinIndices[i * 4 + 2] = processed.boneIndices.get(skinBase + 2);
-                    skinIndices[i * 4 + 3] = processed.boneIndices.get(skinBase + 3);
-
-                    skinWeights[i * 4 + 0] = processed.boneWeights.get(skinBase + 0);
-                    skinWeights[i * 4 + 1] = processed.boneWeights.get(skinBase + 1);
-                    skinWeights[i * 4 + 2] = processed.boneWeights.get(skinBase + 2);
-                    skinWeights[i * 4 + 3] = processed.boneWeights.get(skinBase + 3);
+                    const weights = [];
+                    
+                    // Collect bone weights (Gothic supports up to 4 influences)
+                    for (let j = 0; j < 4; j++) {
+                        const boneIdx = processed.boneIndices.get(skinBase + j);
+                        const weight = processed.boneWeights.get(skinBase + j);
+                        
+                        if (weight > 0.0001) { // Skip negligible weights
+                            weights.push({ boneIndex: boneIdx, weight: weight });
+                        }
+                    }
+                    
+                    vertexWeights[i] = weights;
                 }
             }
 
             const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+            // Mark buffers as dynamic since we'll update them every frame
+            const posAttr = new THREE.BufferAttribute(positions, 3);
+            const normalAttr = new THREE.BufferAttribute(normals, 3);
+            posAttr.setUsage(THREE.DynamicDrawUsage);
+            normalAttr.setUsage(THREE.DynamicDrawUsage);
+            
+            geometry.setAttribute('position', posAttr);
+            geometry.setAttribute('normal', normalAttr);
             geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
-            if (hasSkinning) {
-                geometry.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndices, 4));
-                geometry.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeights, 4));
-            }
+            // NO skinning attributes for CPU skinning - we handle it manually
 
             // Build material groups
             const triCount = processed.materialIds.size();
@@ -1677,18 +1746,13 @@
                 }
             }
 
-            // Build material(s) - use standard Three.js materials with texture support
+            // Build material(s) - use standard Three.js materials
             let material;
             if (hasSkinning && skeleton) {
-                // For skinned meshes, use MeshPhongMaterial with textures
-                // Three.js will handle skinning automatically if we use SkinnedMesh
-                // But since we're using custom shader, let's use basic material for now
-                // Actually, let's use standard materials and let Three.js handle it
-
                 // Create material array for each material group
                 const materialArray = [];
                 const matCount = processed.materials.size();
-                console.log(`📦 Processing ${matCount} materials for skinned mesh`);
+                console.log(`📦 Processing ${matCount} materials for CPU-skinned mesh`);
 
                 for (let mi = 0; mi < matCount; mi++) {
                     const matData = processed.materials.get(mi);
@@ -1720,32 +1784,11 @@
                     materialArray.push(phongMaterial);
                 }
 
-                // Use first material if array is empty, otherwise use array
                 material = materialArray.length > 0 ? materialArray : new THREE.MeshPhongMaterial({
                     color: 0xCCCCCC,
                     side: THREE.DoubleSide
                 });
 
-                // Create standard material
-                const materials = Array.isArray(material) ? material : [material];
-                const standardMaterials = [];
-
-                for (let mi = 0; mi < materials.length; mi++) {
-                    const baseMat = materials[mi];
-                    const texture = baseMat.map;
-
-                    const stdMat = new THREE.MeshStandardMaterial({
-                        map: texture,
-                        side: THREE.DoubleSide,
-                        roughness: 0.8,
-                        metalness: 0.2
-                    });
-                    stdMat.skinning = true; // Enable skinning
-
-                    standardMaterials.push(stdMat);
-                }
-
-                material = standardMaterials.length > 0 ? (standardMaterials.length === 1 ? standardMaterials[0] : standardMaterials) : standardMaterials[0];
             } else {
                 // Static mesh - load texture
                 if (processed.materials.size() > 0) {
@@ -1758,15 +1801,29 @@
                 }
             }
 
-            const applySkinFlag = (mat) => {
-                if (!mat) return;
-                if (hasSkinning) mat.skinning = true;
-            };
-
-            if (Array.isArray(material)) {
-                material.forEach(applySkinFlag);
-            } else {
-                applySkinFlag(material);
+            // Store CPU skinning data globally
+            if (hasSkinning && skeleton) {
+                cpuSkinningData = {
+                    geometry: geometry,
+                    vertexWeights: vertexWeights,
+                    basePositions: basePositions,
+                    baseNormals: baseNormals
+                };
+                console.log(`✅ Prepared CPU skinning data: ${vertexWeights.length} vertices, ${skeleton.bones.length} bones`);
+                console.log(`   First vertex weights:`, vertexWeights[0]);
+                console.log(`   First vertex base pos:`, basePositions[0], basePositions[1], basePositions[2]);
+                
+                // Apply initial skinning to show bind pose correctly
+                // (bones are in bind pose initially, so this should give us the correct initial mesh)
+                setTimeout(() => {
+                    if (skeleton && skeleton.bones && skeleton.threeSkeleton) {
+                        for (const rootIdx of skeleton.rootNodes) {
+                            skeleton.bones[rootIdx].updateMatrixWorld(true);
+                        }
+                        applyCPUSkinning();
+                        console.log('✅ Applied initial CPU skinning (bind pose)');
+                    }
+                }, 100);
             }
 
             return { geometry, material, hasSkinning };
