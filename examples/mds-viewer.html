@@ -2,6 +2,7 @@
 <html lang="en">
 
 <head>
+    <!-- CPU Skinning Implementation - Build: 2024-12-10 21:17 -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ZenKit MDS Viewer (CPU Skinning)</title>
@@ -189,6 +190,12 @@
 
         <div class="info-panel">
             <h1>ZenKit MDS Viewer</h1>
+            <div style="background: #1a4a1a; padding: 10px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #4aff4a;">
+                <div style="color: #aaffaa; font-size: 0.9em;">
+                    <strong>🖥️ CPU Skinning Mode</strong><br>
+                    <span style="font-size: 0.85em;">Vertex transformations computed on CPU each frame (like original Gothic)</span>
+                </div>
+            </div>
             <div style="background: #1a4a1a; padding: 10px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #4aff4a;">
                 <div style="color: #aaffaa; font-size: 0.9em;">
                     <strong>🖥️ CPU Skinning Mode</strong><br>
@@ -558,6 +565,7 @@
                 this.currentSeq = sequence;
                 this.animTime = 0;
                 console.log(`Started animation: ${sequence.name || '(unnamed)'}, ${sequence.numFrames} frames at ${sequence.fpsRate} FPS`);
+                console.log(`🎬 Animation started - CPU skinning will transform ${cpuSkinningData ? cpuSkinningData.vertexWeights.length : 0} vertices each frame`);
             }
 
             update(deltaTime) {
@@ -657,7 +665,7 @@
         
         /**
          * Apply CPU skinning - transforms vertices using bone matrices on CPU
-         * This matches the original Gothic engine's approach
+         * Uses a hybrid approach: bind pose vertices + bone-local weight positions
          */
         function applyCPUSkinning() {
             if (!cpuSkinningData || !skeleton) return;
@@ -666,61 +674,83 @@
             const posAttribute = geometry.getAttribute('position');
             const normalAttribute = geometry.getAttribute('normal');
             
-            // Get bone matrices (current pose) and inverse bind matrices
+            // Get bone world matrices and inverse bind matrices
             const boneMatrices = skeleton.bones.map(bone => bone.matrixWorld);
-            const boneInverses = skeleton.threeSkeleton.boneInverses; // Bind pose inverses
+            const boneInverses = skeleton.threeSkeleton.boneInverses;
             
-            // Transform each vertex (Gothic's approach with proper skinning math)
-            for (let i = 0; i < basePositions.length / 3; i++) {
+            // Transform each vertex
+            for (let i = 0; i < vertexWeights.length; i++) {
                 const weights = vertexWeights[i];
-                if (!weights || weights.length === 0) continue;
-                
-                // Get base vertex data (in bind pose)
-                const basePos = new THREE.Vector3(
-                    basePositions[i * 3 + 0],
-                    basePositions[i * 3 + 1],
-                    basePositions[i * 3 + 2]
-                );
-                const baseNormal = new THREE.Vector3(
-                    baseNormals[i * 3 + 0],
-                    baseNormals[i * 3 + 1],
-                    baseNormals[i * 3 + 2]
-                );
-                
-                // Accumulate weighted transforms (Gothic's N-Link approach)
-                const resultPos = new THREE.Vector3(0, 0, 0);
-                const resultNormal = new THREE.Vector3(0, 0, 0);
-                
-                for (const { boneIndex, weight } of weights) {
-                    if (boneIndex >= boneMatrices.length) continue;
-                    
-                    // Proper skinning: Vertex -> Inverse Bind -> Current Bone
-                    // This transforms from mesh space -> bone space -> animated space
-                    const skinMatrix = new THREE.Matrix4();
-                    skinMatrix.multiplyMatrices(boneMatrices[boneIndex], boneInverses[boneIndex]);
-                    
-                    // Transform position
-                    const transformedPos = basePos.clone().applyMatrix4(skinMatrix);
-                    resultPos.addScaledVector(transformedPos, weight);
-                    
-                    // Transform normal (rotation only)
-                    const mat3 = new THREE.Matrix3().setFromMatrix4(skinMatrix);
-                    const transformedNormal = baseNormal.clone().applyMatrix3(mat3);
-                    resultNormal.addScaledVector(transformedNormal, weight);
+                if (!weights || weights.length === 0) {
+                    // No weights - keep base position
+                    posAttribute.setXYZ(i, basePositions[i * 3 + 0], basePositions[i * 3 + 1], basePositions[i * 3 + 2]);
+                    normalAttribute.setXYZ(i, baseNormals[i * 3 + 0], baseNormals[i * 3 + 1], baseNormals[i * 3 + 2]);
+                    continue;
                 }
                 
-                // Write back to geometry
-                posAttribute.setXYZ(i, resultPos.x, resultPos.y, resultPos.z);
-                normalAttribute.setXYZ(i, resultNormal.x, resultNormal.y, resultNormal.z);
+                // If we have bone-local positions from weight entries, use Gothic's direct method
+                if (weights[0].position) {
+                    const resultPos = new THREE.Vector3(0, 0, 0);
+                    const resultNormal = new THREE.Vector3(0, 0, 0);
+                    
+                    for (const { boneIndex, weight, position, normal } of weights) {
+                        if (boneIndex >= boneMatrices.length) continue;
+                        
+                        // Gothic: resultPos += weight * (boneMatrix * weightEntry.position)
+                        const vertPosOS = new THREE.Vector3(position.x, position.y, position.z);
+                        const transformedPos = vertPosOS.applyMatrix4(boneMatrices[boneIndex]);
+                        resultPos.addScaledVector(transformedPos, weight);
+                        
+                        if (normal) {
+                            const vertNormalOS = new THREE.Vector3(normal.x, normal.y, normal.z);
+                            const mat3 = new THREE.Matrix3().setFromMatrix4(boneMatrices[boneIndex]);
+                            const transformedNormal = vertNormalOS.applyMatrix3(mat3);
+                            resultNormal.addScaledVector(transformedNormal, weight);
+                        }
+                    }
+                    
+                    posAttribute.setXYZ(i, resultPos.x, resultPos.y, resultPos.z);
+                    if (resultNormal.lengthSq() > 0) {
+                        normalAttribute.setXYZ(i, resultNormal.x, resultNormal.y, resultNormal.z);
+                    }
+                } else {
+                    // Fallback: use base position with inverse bind matrix method
+                    const basePos = new THREE.Vector3(
+                        basePositions[i * 3 + 0],
+                        basePositions[i * 3 + 1],
+                        basePositions[i * 3 + 2]
+                    );
+                    const baseNorm = new THREE.Vector3(
+                        baseNormals[i * 3 + 0],
+                        baseNormals[i * 3 + 1],
+                        baseNormals[i * 3 + 2]
+                    );
+                    
+                    const resultPos = new THREE.Vector3(0, 0, 0);
+                    const resultNormal = new THREE.Vector3(0, 0, 0);
+                    
+                    for (const { boneIndex, weight } of weights) {
+                        if (boneIndex >= boneMatrices.length) continue;
+                        
+                        const skinMatrix = new THREE.Matrix4();
+                        skinMatrix.multiplyMatrices(boneMatrices[boneIndex], boneInverses[boneIndex]);
+                        
+                        const transformedPos = basePos.clone().applyMatrix4(skinMatrix);
+                        resultPos.addScaledVector(transformedPos, weight);
+                        
+                        const mat3 = new THREE.Matrix3().setFromMatrix4(skinMatrix);
+                        const transformedNormal = baseNorm.clone().applyMatrix3(mat3);
+                        resultNormal.addScaledVector(transformedNormal, weight);
+                    }
+                    
+                    posAttribute.setXYZ(i, resultPos.x, resultPos.y, resultPos.z);
+                    normalAttribute.setXYZ(i, resultNormal.x, resultNormal.y, resultNormal.z);
+                }
             }
             
             // Mark attributes as needing update
             posAttribute.needsUpdate = true;
             normalAttribute.needsUpdate = true;
-            
-            // Force geometry update
-            if (geometry.boundingBox) geometry.computeBoundingBox();
-            if (geometry.boundingSphere) geometry.computeBoundingSphere();
         }
 
         function updateStatus(message, type = 'loading') {
@@ -1480,14 +1510,8 @@
                             continue;
                         }
 
-                        const processed = model.convertSoftSkinMeshToProcessedMesh(softSkinMesh);
-
-                        if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
-                            console.warn(`⚠️ Soft-skin mesh ${i} has no geometry`);
-                            continue;
-                        }
-
-                        const { geometry, material, hasSkinning } = await buildSkinnedMeshGeometry(processed, skeleton);
+                        // Use CPU skinning with raw SoftSkinMesh data (Gothic's approach!)
+                        const { geometry, material, hasSkinning } = await buildCPUSkinnedMeshGeometry(softSkinMesh, skeleton);
 
                         // No geometry offset needed - we're using CPU skinning just like Gothic!
 
@@ -1650,6 +1674,182 @@
                 updateStatus(`❌ Failed to render model: ${error.message}`, 'error');
                 console.error('Model rendering error:', error);
             }
+        }
+
+        /**
+         * Build geometry for CPU skinning directly from SoftSkinMesh raw data
+         * Accesses vertex positions in bone-local space (like Gothic's vertPosOS)
+         */
+        async function buildCPUSkinnedMeshGeometry(softSkinMesh, skeleton) {
+            // Access the MultiResolutionMesh inside the SoftSkinMesh
+            const mrMesh = softSkinMesh.mesh;
+            const positions_raw = mrMesh.positions; // Raw positions in bone-local space!
+            const normals_raw = mrMesh.normals;
+            const subMeshes = mrMesh.subMeshes;
+            const weights = softSkinMesh.weights; // Per-vertex weight data
+            
+            // Precompute bind-pose matrices (inverse of boneInverses)
+            const bindMatrices = skeleton.threeSkeleton.boneInverses.map(inv => {
+                const m = new THREE.Matrix4();
+                m.copy(inv).invert();
+                return m;
+            });
+
+            // Build expanded vertex arrays (non-indexed for simplicity)
+            const positions = [];
+            const normals = [];
+            const uvs = [];
+            const vertexWeights = [];
+            const materials = [];
+            
+            let currentMatIndex = 0;
+            const triGroups = []; // {start, count, matIndex}
+            let triCount = 0;
+            
+            console.log(`✅ Building CPU-skinned geometry from ${subMeshes.size()} submeshes`);
+            
+            for (let subMeshIdx = 0; subMeshIdx < subMeshes.size(); subMeshIdx++) {
+                const subMesh = subMeshes.get(subMeshIdx);
+                const groupStart = triCount;
+                
+                // Add material
+                materials.push({
+                    texture: subMesh.mat.texture || ''
+                });
+                
+                const triangles = subMesh.triangles;
+                const wedges = subMesh.wedges;
+                
+                console.log(`   Submesh ${subMeshIdx}: ${triangles.size()} triangles, ${wedges.size()} wedges`);
+                
+                // Process triangles in this submesh
+                for (let triIdx = 0; triIdx < triangles.size(); triIdx++) {
+                    const triangle = triangles.get(triIdx);
+                    
+                    // Each triangle has 3 wedges (indices into wedges array)
+                    for (let i = 0; i < 3; i++) {
+                        const wedgeIdx = triangle.getWedge(i);
+                        const wedge = wedges.get(wedgeIdx);
+                        const vertIdx = wedge.index; // Index into positions_raw/normals_raw
+                        
+                        const vertWeights = weights.get(vertIdx);
+                        const weightArray = [];
+
+                        // Compute bind-pose blended position/normal using weight-local positions and bind matrices
+                        const bindPos = new THREE.Vector3(0, 0, 0);
+                        const bindNorm = new THREE.Vector3(0, 0, 0);
+                        const baseNormalOS = normals_raw.get(vertIdx);
+
+                        for (let j = 0; j < vertWeights.size(); j++) {
+                            const w = vertWeights.get(j);
+                            if (w.weight > 0.0001) {
+                                const boneIndex = w.nodeIndex;
+                                const bindMatrix = bindMatrices[boneIndex] || new THREE.Matrix4();
+
+                                const posOS = new THREE.Vector3(w.position.x, w.position.y, w.position.z);
+                                const posBind = posOS.clone().applyMatrix4(bindMatrix);
+                                bindPos.addScaledVector(posBind, w.weight);
+
+                                const mat3 = new THREE.Matrix3().setFromMatrix4(bindMatrix);
+                                const nBind = new THREE.Vector3(baseNormalOS.x, baseNormalOS.y, baseNormalOS.z).applyMatrix3(mat3);
+                                bindNorm.addScaledVector(nBind, w.weight);
+
+                                weightArray.push({
+                                    boneIndex: boneIndex,
+                                    weight: w.weight,
+                                    position: { x: w.position.x, y: w.position.y, z: w.position.z },
+                                    normal: { x: baseNormalOS.x, y: baseNormalOS.y, z: baseNormalOS.z }
+                                });
+                            }
+                        }
+
+                        positions.push(bindPos.x, bindPos.y, bindPos.z);
+                        normals.push(bindNorm.x, bindNorm.y, bindNorm.z);
+
+                        // Get UV from wedge
+                        uvs.push(wedge.texture.x, wedge.texture.y);
+
+                        vertexWeights.push(weightArray);
+                    }
+                    
+                    triCount++;
+                }
+                
+                triGroups.push({
+                    start: groupStart * 3,
+                    count: (triCount - groupStart) * 3,
+                    matIndex: currentMatIndex
+                });
+                currentMatIndex++;
+            }
+            
+            // Create Three.js geometry
+            const geometry = new THREE.BufferGeometry();
+            const posAttr = new THREE.BufferAttribute(new Float32Array(positions), 3);
+            const normalAttr = new THREE.BufferAttribute(new Float32Array(normals), 3);
+            posAttr.setUsage(THREE.DynamicDrawUsage);
+            normalAttr.setUsage(THREE.DynamicDrawUsage);
+            
+            geometry.setAttribute('position', posAttr);
+            geometry.setAttribute('normal', normalAttr);
+            geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+            
+            // Add material groups
+            for (const group of triGroups) {
+                geometry.addGroup(group.start, group.count, group.matIndex);
+            }
+            
+            // Build materials
+            const materialArray = [];
+            for (let mi = 0; mi < materials.length; mi++) {
+                const matData = materials[mi];
+                const textureName = matData.texture || '';
+                
+                const phongMaterial = new THREE.MeshPhongMaterial({
+                    color: 0xFFFFFF,
+                    side: THREE.DoubleSide,
+                    transparent: false,
+                    alphaTest: 0.5
+                });
+                
+                // Load texture if available
+                if (textureName && textureName.length) {
+                    const url = tgaNameToCompiledUrl(textureName);
+                    const tex = await loadTextureCached(url);
+                    if (tex) {
+                        phongMaterial.map = tex;
+                        phongMaterial.needsUpdate = true;
+                    }
+                }
+                
+                materialArray.push(phongMaterial);
+            }
+            
+            const material = materialArray.length > 0 ? materialArray : new THREE.MeshPhongMaterial({
+                color: 0xCCCCCC,
+                side: THREE.DoubleSide
+            });
+            
+            // Store CPU skinning data globally
+            cpuSkinningData = {
+                geometry: geometry,
+                vertexWeights: vertexWeights,
+                basePositions: new Float32Array(positions),
+                baseNormals: new Float32Array(normals)
+            };
+            
+            // Check if we have bone-local positions
+            const hasBoneLocalPos = vertexWeights.length > 0 && vertexWeights[0].length > 0 && vertexWeights[0][0].position;
+            
+            console.log(`✅ Built CPU-skinned geometry from raw soft-skin data`);
+            console.log(`   ${vertexWeights.length} vertices, ${skeleton.bones.length} bones`);
+            console.log(`   Bone-local positions: ${hasBoneLocalPos ? 'YES' : 'NO'}`);
+            console.log(`   Sample vertex 0: pos(${positions[0].toFixed(2)}, ${positions[1].toFixed(2)}, ${positions[2].toFixed(2)})`);
+            if (vertexWeights[0] && vertexWeights[0].length > 0) {
+                console.log(`   Sample weight 0:`, vertexWeights[0][0]);
+            }
+            
+            return { geometry, material, hasSkinning: true };
         }
 
         async function buildSkinnedMeshGeometry(processed, skeleton) {

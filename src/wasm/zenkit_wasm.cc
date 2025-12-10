@@ -54,6 +54,10 @@ EMSCRIPTEN_BINDINGS(zenkit_main) {
     using namespace emscripten;
 
     // Basic types
+    value_object<zenkit::Vec2>("Vec2")
+        .field("x", &zenkit::Vec2::x)
+        .field("y", &zenkit::Vec2::y);
+    
     value_object<zenkit::Vec3>("Vec3")
         .field("x", &zenkit::Vec3::x)
         .field("y", &zenkit::Vec3::y)
