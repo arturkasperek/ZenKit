@@ -739,6 +739,13 @@ namespace zenkit::wasm {
         /// \brief Convert SoftSkinMesh to ProcessedMeshData for Three.js rendering
         ProcessedMeshData convertSoftSkinMeshToProcessedMesh(const zenkit::SoftSkinMesh* softSkinMesh) const;
 
+        /// \brief Calculate required geometry offset relative to reference model
+        /// \param softSkinMesh The soft-skin mesh to analyze
+        /// \param hierarchy The model hierarchy with bone transforms
+        /// \param referenceMesh Optional reference mesh (e.g., HUM_BODY_NAKED0) to calculate relative offset
+        /// \return Vec3 offset that should be applied to geometry
+        zenkit::Vec3 calculateGeometryOffset(const zenkit::SoftSkinMesh* softSkinMesh, const zenkit::ModelHierarchy* hierarchy, const zenkit::SoftSkinMesh* referenceMesh = nullptr) const;
+
         /// \brief Set hierarchy from a separately loaded ModelHierarchy
         void setHierarchy(const zenkit::ModelHierarchy& hierarchy) { model_.hierarchy = hierarchy; }
 

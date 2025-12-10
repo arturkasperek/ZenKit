@@ -73,6 +73,22 @@
             border-radius: 3px;
         }
 
+        .info-item.clickable {
+            cursor: pointer;
+            transition: background 0.2s, border 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .info-item.clickable:hover {
+            background: rgba(74, 158, 255, 0.2);
+        }
+
+        .info-item.active {
+            background: rgba(74, 158, 255, 0.3);
+            border-left: 3px solid #4a9eff;
+            font-weight: bold;
+        }
+
         .info-label {
             font-weight: bold;
             color: #aaa;
@@ -216,7 +232,7 @@
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
         let pose = null; // Custom Pose class instance
-        const FORCE_FEMALE_BODY = true; // Hardcode female rig/mesh
+        const FORCE_FEMALE_BODY = false; // Hardcode female rig/mesh
         const DEFAULT_MDS = 'HumanS.mds';
         const DEFAULT_OVERLAY = 'MDS_OVERLAY/Humans_Babe.mds';
         let currentMdsBaseName = 'HumanS'; // Store the MDS base name (from MDS file)
@@ -228,6 +244,7 @@
         let headNodeIndex = -1; // Index of the head bone in the skeleton
         let skeletonHelper = null; // Visualize bones
         let boneLabels = []; // Sprites with bone ids
+        let activeMeshName = null; // Currently selected mesh to load (null = default from MDS)
 
         // Asset caches
         const meshCache = new Map();
@@ -865,9 +882,24 @@
                 const isBabeOverlay = mdsFileName.toLowerCase().includes('mds_overlay/humans_babe');
                 const useForced = FORCE_FEMALE_BODY || !mdsSkeletonName || isBabeOverlay;
 
-                const skeletonBaseName = useForced
-                    ? forcedMdmName
-                    : mdsSkeletonName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
+                let skeletonBaseName;
+                
+                // If user selected a specific mesh, use it
+                if (activeMeshName) {
+                    skeletonBaseName = activeMeshName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
+                    console.log(`🎯 Using user-selected mesh: ${skeletonBaseName}`);
+                } else if (useForced) {
+                    skeletonBaseName = forcedMdmName;
+                } else {
+                    skeletonBaseName = mdsSkeletonName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
+                }
+                
+                // Override for testing Raven Armor (male) - only if no user selection
+                if (!activeMeshName && !FORCE_FEMALE_BODY && skeletonBaseName === 'HUM_BODY_NAKED0') {
+                    skeletonBaseName = 'ARMOR_RAVEN_ADDON';
+                    console.log('🦅 Testing with Raven Armor instead of naked body');
+                }
+                
                 const mdsBaseName = useForced
                     ? forcedMdhName
                     : mdsFileOnly.replace(/\.(MDS|MSB)$/i, '').toUpperCase();
@@ -1047,6 +1079,32 @@
                 // Get hierarchy to build skeleton
                 const hierarchy = model.getHierarchy();
 
+                // Load reference model (HUM_BODY_NAKED0) for offset calculation
+                let referenceModel = null;
+                let referenceMesh = null;
+                try {
+                    const refMdmPath = `/public/game-assets/ANIMS/_COMPILED/HUM_BODY_NAKED0.MDM`;
+                    const refResponse = await fetch(refMdmPath);
+                    if (refResponse.ok) {
+                        const refBuffer = await refResponse.arrayBuffer();
+                        const refUint8Array = new Uint8Array(refBuffer);
+                        const refMeshLoader = ZenKit.createModelMeshLoader();
+                        const refLoadResult = refMeshLoader.loadFromArray(refUint8Array);
+                        if (refLoadResult && refLoadResult.success) {
+                            referenceModel = ZenKit.createModel();
+                            referenceModel.setMesh(refMeshLoader.getMesh());
+                            const refMeshes = referenceModel.getSoftSkinMeshes();
+                            if (refMeshes.size() > 0) {
+                                referenceMesh = refMeshes.get(0);
+                                console.log('✅ Loaded reference model (HUM_BODY_NAKED0) for offset calculation');
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn('⚠️ Could not load reference model:', err);
+                }
+
+
                 // Build custom Skeleton class (mimics OpenGothic)
                 skeleton = new Skeleton(hierarchy);
 
@@ -1178,6 +1236,19 @@
 
                         const { geometry, material, hasSkinning } = await buildSkinnedMeshGeometry(processed, skeleton);
 
+                        // Calculate automatic geometry offset relative to reference model
+                        // (Gothic CPU skinning vs Three.js GPU skinning difference)
+                        const geometryOffset = referenceMesh 
+                            ? model.calculateGeometryOffset(softSkinMesh, hierarchy, referenceMesh)
+                            : model.calculateGeometryOffset(softSkinMesh, hierarchy, null);
+                        
+                        if (geometryOffset && Math.abs(geometryOffset.z) > 0.1) {
+                            // Apply ONLY Z-axis offset (main difference between models)
+                            // X and Y offsets can cause clipping issues
+                            geometry.translate(0, 0, -geometryOffset.z);
+                            console.log(`   🔧 Auto-applied Z-axis offset: ${(-geometryOffset.z).toFixed(2)} (original: X=${geometryOffset.x.toFixed(2)}, Y=${geometryOffset.y.toFixed(2)}, Z=${geometryOffset.z.toFixed(2)})`);
+                        }
+
                         let meshObj;
                         if (hasSkinning && skeleton) {
                             meshObj = new THREE.SkinnedMesh(geometry, material);
@@ -1196,17 +1267,6 @@
                         } else {
                             meshObj = new THREE.Mesh(geometry, material);
                             console.log(`   ℹ️ Created static mesh for soft-skin mesh ${i} (skinning: ${hasSkinning})`);
-                        }
-
-                        // Hack alignment for female body: adjust geometry to match male bind-pose
-                        if (FORCE_FEMALE_BODY && currentSkeletonBaseName.startsWith('HUM_BODY_BABE')) {
-                            // Align Babe mesh center to male reference (delta from compare-mdm)
-                            // Apply offset to geometry vertices, not mesh position
-                            const offsetX = 1.05;
-                            const offsetY = 0.38;
-                            const offsetZ = 14.0;  // Positive due to DirectX -> WebGL coordinate conversion
-                            meshObj.geometry.translate(offsetX, offsetY, offsetZ);
-                            console.log(`🔧 Applied BABE body geometry correction: (${offsetX}, ${offsetY}, ${offsetZ})`);
                         }
 
                         modelGroup.add(meshObj);
@@ -1659,7 +1719,20 @@
 
         function tgaNameToCompiledUrl(name) {
             if (!name || typeof name !== 'string') return null;
-            const base = name.replace(/\.[^.]*$/, '').toUpperCase();
+            let base = name.replace(/\.[^.]*$/, '').toUpperCase();
+            
+            // Override textures for female body (Hilda)
+            // Hilda: face=144 (FACEBABE_N_WHITECLOTH), body=5 (BODYTEXBABE_N)
+            if (FORCE_FEMALE_BODY) {
+                if (base.includes('HUM_BODY')) {
+                    base = 'HUM_BODY_NAKED_V5_C0';
+                    console.log(`🎨 Using Hilda body texture: ${base}`);
+                } else if (base.includes('HUM_HEAD')) {
+                    base = 'HUM_HEAD_V144_C0';
+                    console.log(`🎨 Using Hilda head texture: ${base}`);
+                }
+            }
+            
             return `/public/game-assets/TEXTURES/_COMPILED/${base}-C.TEX`;
         }
 
@@ -1672,13 +1745,26 @@
                 // If we ever discover a missing asset, disable further attempts
                 const markUnavailable = () => { headMeshesAvailable = false; };
 
-                // Try common head mesh names
-                const headMeshNames = [
-                    'HUM_HEAD',
-                    'HUM_HEAD_BABE',
-                    'HUM_HEAD_BABE1',
-                    'HUM_HEAD_BABE2'
-                ];
+                // Choose head based on body type
+                let headMeshNames;
+                if (FORCE_FEMALE_BODY) {
+                    // Hilda uses HUM_HEAD_BABE8
+                    headMeshNames = [
+                        'HUM_HEAD_BABE8',
+                        'HUM_HEAD_BABE',
+                        'HUM_HEAD_BABE1',
+                        'HUM_HEAD_BABE2'
+                    ];
+                    console.log('🙋‍♀️ Loading female head (Hilda): HUM_HEAD_BABE8');
+                } else {
+                    // Male head
+                    headMeshNames = [
+                        'HUM_HEAD',
+                        'HUM_HEAD_BABE',
+                        'HUM_HEAD_BABE1',
+                        'HUM_HEAD_BABE2'
+                    ];
+                }
 
                 for (const headName of headMeshNames) {
                     const headMmbPath = `/public/game-assets/ANIMS/_COMPILED/${headName}.MMB`;
@@ -1758,8 +1844,22 @@
                 for (let i = 0; i < meshCount; i++) {
                     const meshName = mds.getMeshName(i);
                     const item = document.createElement('div');
-                    item.className = 'info-item';
+                    item.className = 'info-item clickable';
                     item.textContent = `${i + 1}. ${meshName}`;
+                    
+                    // Mark active mesh
+                    if (activeMeshName === meshName || (!activeMeshName && i === 0)) {
+                        item.classList.add('active');
+                    }
+                    
+                    // Click handler to load specific mesh
+                    item.addEventListener('click', async () => {
+                        activeMeshName = meshName;
+                        console.log(`🎯 Selected mesh: ${meshName}`);
+                        // Reload the model with selected mesh
+                        await loadMdsFile(DEFAULT_MDS, FORCE_FEMALE_BODY ? DEFAULT_OVERLAY : null);
+                    });
+                    
                     meshesList.appendChild(item);
                 }
             }

@@ -53,6 +53,12 @@ EMSCRIPTEN_BINDINGS(zenkit_main) {
     using namespace zenkit::wasm;
     using namespace emscripten;
 
+    // Basic types
+    value_object<zenkit::Vec3>("Vec3")
+        .field("x", &zenkit::Vec3::x)
+        .field("y", &zenkit::Vec3::y)
+        .field("z", &zenkit::Vec3::z);
+
     // Library information
     class_<LibraryInfo>("LibraryInfo")
         .property("version", &LibraryInfo::version)
@@ -189,7 +195,8 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
         .function("getAttachmentNames", &ModelWrapper::getAttachmentNames)
         .function("getAttachment", &ModelWrapper::getAttachment, allow_raw_pointers())
         .function("convertAttachmentToProcessedMesh", &ModelWrapper::convertAttachmentToProcessedMesh, allow_raw_pointers())
-        .function("convertSoftSkinMeshToProcessedMesh", &ModelWrapper::convertSoftSkinMeshToProcessedMesh, allow_raw_pointers());
+        .function("convertSoftSkinMeshToProcessedMesh", &ModelWrapper::convertSoftSkinMeshToProcessedMesh, allow_raw_pointers())
+        .function("calculateGeometryOffset", &ModelWrapper::calculateGeometryOffset, allow_raw_pointers());
 
     // Factory function for models
     function("createModel", select_overload<std::unique_ptr<ModelWrapper>()>([]() {

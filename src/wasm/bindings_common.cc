@@ -595,6 +595,62 @@ namespace zenkit::wasm {
         return result;
     }
 
+    zenkit::Vec3 ModelWrapper::calculateGeometryOffset(const zenkit::SoftSkinMesh* softSkinMesh, const zenkit::ModelHierarchy* hierarchy, const zenkit::SoftSkinMesh* referenceMesh) const {
+        if (!softSkinMesh) {
+            return zenkit::Vec3{0, 0, 0};
+        }
+
+        const auto& mesh = softSkinMesh->mesh;
+
+        // Calculate average mesh.positions for current mesh
+        zenkit::Vec3 currentAvg{0, 0, 0};
+        int currentCount = 0;
+        
+        for (size_t i = 0; i < mesh.positions.size(); ++i) {
+            currentAvg.x += mesh.positions[i].x;
+            currentAvg.y += mesh.positions[i].y;
+            currentAvg.z += mesh.positions[i].z;
+            currentCount++;
+        }
+
+        if (currentCount > 0) {
+            currentAvg.x /= currentCount;
+            currentAvg.y /= currentCount;
+            currentAvg.z /= currentCount;
+        }
+
+        // If reference mesh provided, calculate relative offset
+        if (referenceMesh) {
+            const auto& refMesh = referenceMesh->mesh;
+            
+            zenkit::Vec3 refAvg{0, 0, 0};
+            int refCount = 0;
+            
+            for (size_t i = 0; i < refMesh.positions.size(); ++i) {
+                refAvg.x += refMesh.positions[i].x;
+                refAvg.y += refMesh.positions[i].y;
+                refAvg.z += refMesh.positions[i].z;
+                refCount++;
+            }
+
+            if (refCount > 0) {
+                refAvg.x /= refCount;
+                refAvg.y /= refCount;
+                refAvg.z /= refCount;
+            }
+
+            // Return relative offset (current - reference)
+            return zenkit::Vec3{
+                currentAvg.x - refAvg.x,
+                currentAvg.y - refAvg.y,
+                currentAvg.z - refAvg.z
+            };
+        }
+
+        // If no reference, return zero (no offset needed)
+        return zenkit::Vec3{0, 0, 0};
+    }
+
     // MorphMeshWrapper method implementations
     Result<bool> MorphMeshWrapper::load(uintptr_t data_ptr, size_t length) {
         try {
