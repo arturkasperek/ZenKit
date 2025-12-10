@@ -257,6 +257,28 @@
         let activeHeadName = null; // Currently selected head (null = auto-detect)
         let showFemaleHeads = false; // Toggle between male/female head lists
 
+        // Available head models
+        const MALE_HEADS = [
+            'HUM_HEAD_BALD',
+            'HUM_HEAD_FATBALD',
+            'HUM_HEAD_FIGHTER',
+            'HUM_HEAD_PONY',
+            'HUM_HEAD_PSIONIC',
+            'HUM_HEAD_THIEF'
+        ];
+
+        const FEMALE_HEADS = [
+            'HUM_HEAD_BABE',
+            'HUM_HEAD_BABE1',
+            'HUM_HEAD_BABE2',
+            'HUM_HEAD_BABE3',
+            'HUM_HEAD_BABE4',
+            'HUM_HEAD_BABE5',
+            'HUM_HEAD_BABE6',
+            'HUM_HEAD_BABE7',
+            'HUM_HEAD_BABE8'
+        ];
+
         // Asset caches
         const meshCache = new Map();
         const textureCache = new Map();
@@ -786,29 +808,7 @@
             const headsList = document.getElementById('heads-list');
             headsList.innerHTML = '';
 
-            // Define available heads
-            const maleHeads = [
-                'HUM_HEAD_BALD',
-                'HUM_HEAD_FATBALD',
-                'HUM_HEAD_FIGHTER',
-                'HUM_HEAD_PONY',
-                'HUM_HEAD_PSIONIC',
-                'HUM_HEAD_THIEF'
-            ];
-
-            const femaleHeads = [
-                'HUM_HEAD_BABE',
-                'HUM_HEAD_BABE1',
-                'HUM_HEAD_BABE2',
-                'HUM_HEAD_BABE3',
-                'HUM_HEAD_BABE4',
-                'HUM_HEAD_BABE5',
-                'HUM_HEAD_BABE6',
-                'HUM_HEAD_BABE7',
-                'HUM_HEAD_BABE8'
-            ];
-
-            const heads = showFemaleHeads ? femaleHeads : maleHeads;
+            const heads = showFemaleHeads ? FEMALE_HEADS : MALE_HEADS;
 
             // Add "Auto" option
             const autoItem = document.createElement('div');
@@ -818,10 +818,10 @@
                 autoItem.classList.add('active');
             }
             autoItem.addEventListener('click', async () => {
-                    activeHeadName = null;
-                    console.log('🔄 Head set to auto-detect');
-                    await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
-                });
+                activeHeadName = null;
+                console.log('🔄 Head set to auto-detect');
+                await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+            });
             headsList.appendChild(autoItem);
 
             // Add head options
@@ -1810,12 +1810,8 @@
                     headMeshNames = [activeHeadName];
                     console.log(`🎭 Loading user-selected head: ${activeHeadName}`);
                 } else {
-                    // Try common default heads (male variants most common)
-                    headMeshNames = [
-                        'HUM_HEAD',
-                        'HUM_HEAD_BALD',
-                        'HUM_HEAD_FIGHTER'
-                    ];
+                    // Try first few male heads as defaults (most common)
+                    headMeshNames = MALE_HEADS.slice(0, 3);
                     console.log('🔄 Auto-loading default head');
                 }
 
