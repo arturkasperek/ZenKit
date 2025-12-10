@@ -646,14 +646,16 @@
                         rot = { x: -rot.x, y: -rot.y, z: -rot.z, w: rot.w };
                         
                         // Apply animation sample to bone
-                        bone.position.set(pos.x, pos.y, pos.z);
-                        
-                        // CRITICAL: Animation samples are in local space without root translation.
-                        // We must add root translation back to root bones to keep them in correct world space.
                         if (this.skeleton.rootNodes.includes(i)) {
-                            bone.position.x += this.skeleton.rootTr.x;
-                            bone.position.y += this.skeleton.rootTr.y;
-                            bone.position.z += this.skeleton.rootTr.z;
+                            // Samples are in root-local space; bind pose already carried rootTr.
+                            // Subtract rootTr here to avoid double-applying translation.
+                            bone.position.set(
+                                pos.x - this.skeleton.rootTr.x,
+                                pos.y - this.skeleton.rootTr.y,
+                                pos.z - this.skeleton.rootTr.z
+                            );
+                        } else {
+                            bone.position.set(pos.x, pos.y, pos.z);
                         }
                         
                         bone.quaternion.set(rot.x, rot.y, rot.z, rot.w);
@@ -676,6 +678,42 @@
         // CPU SKINNING (Port of Gothic's RenderSoftSkin approach)
         // ====================================================================
         
+        // Indices to log when debugging first-frame vertex jumps
+        const DEBUG_VERTEX_INDICES = [0, 50, 200];
+
+        function logVertexSamples(label) {
+            if (!cpuSkinningData || !cpuSkinningData.geometry) {
+                console.log(JSON.stringify({ tag: 'VertexLog', label, error: 'cpuSkinningData not ready' }));
+                return;
+            }
+
+            const posAttr = cpuSkinningData.geometry.getAttribute('position');
+            const samples = [];
+
+            DEBUG_VERTEX_INDICES.forEach((idx) => {
+                const clamped = Math.max(0, Math.min(idx, posAttr.count - 1));
+                const bindX = cpuSkinningData.basePositions[clamped * 3 + 0];
+                const bindY = cpuSkinningData.basePositions[clamped * 3 + 1];
+                const bindZ = cpuSkinningData.basePositions[clamped * 3 + 2];
+
+                samples.push({
+                    index: clamped,
+                    bind: {
+                        x: Number(bindX.toFixed(3)),
+                        y: Number(bindY.toFixed(3)),
+                        z: Number(bindZ.toFixed(3))
+                    },
+                    skinned: {
+                        x: Number(posAttr.getX(clamped).toFixed(3)),
+                        y: Number(posAttr.getY(clamped).toFixed(3)),
+                        z: Number(posAttr.getZ(clamped).toFixed(3))
+                    }
+                });
+            });
+
+            console.log(JSON.stringify({ tag: 'VertexLog', label, samples }));
+        }
+
         /**
          * Apply CPU skinning - transforms vertices using bone matrices on CPU
          * Uses a hybrid approach: bind pose vertices + bone-local weight positions
@@ -2107,7 +2145,19 @@
                 return;
             }
 
+            // Log vertex positions before the animation is applied
+            logVertexSamples(`Before ${animationName}`);
+
             pose.startAnim(seq);
+            pose.animTime = 0;
+            pose.update(0); // Force first frame application immediately
+            if (cpuSkinningData) {
+                applyCPUSkinning();
+            }
+
+            // Log vertex positions right after first frame is applied
+            logVertexSamples(`After ${animationName} frame0`);
+
             console.log(`▶️ Playing animation: ${animationName}`);
 
             // Update UI
