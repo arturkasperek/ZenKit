@@ -441,19 +441,11 @@
                     bone.scale.copy(scale);
                 }
 
-                // 4. Apply Root Translation to Root Bones
-                // 4. Apply Root Translation to Root Bones (matches OpenGothic)
+                // 4. Store Root Translation (will be applied during animation)
                 const rt = hierarchy.rootTranslation;
                 this.rootTr = { x: rt.x, y: rt.y, z: rt.z };
 
-                for (const rootIdx of this.rootNodes) {
-                    const bone = this.bones[rootIdx];
-                    bone.position.x += this.rootTr.x;
-                    bone.position.y += this.rootTr.y;
-                    bone.position.z += this.rootTr.z;
-                }
-
-                // 5. Compute bind-pose inverses
+                // 5. Compute bind-pose inverses (WITHOUT root translation applied yet)
                 for (const rootIdx of this.rootNodes) {
                     this.bones[rootIdx].updateMatrixWorld(true);
                 }
@@ -564,8 +556,13 @@
             startAnim(sequence) {
                 this.currentSeq = sequence;
                 this.animTime = 0;
-                console.log(`Started animation: ${sequence.name || '(unnamed)'}, ${sequence.numFrames} frames at ${sequence.fpsRate} FPS`);
-                console.log(`🎬 Animation started - CPU skinning will transform ${cpuSkinningData ? cpuSkinningData.vertexWeights.length : 0} vertices each frame`);
+                
+                // Basic logging when animation starts
+                const rootNodeIdx = this.skeleton.rootNodes[0];
+                const rootBone = this.skeleton.bones[rootNodeIdx];
+                console.log(`▶️ Animation: ${sequence.name}, ${sequence.numFrames} frames @ ${sequence.fpsRate} FPS`);
+                console.log(`   Root translation: (${this.skeleton.rootTr.x.toFixed(2)}, ${this.skeleton.rootTr.y.toFixed(2)}, ${this.skeleton.rootTr.z.toFixed(2)})`);
+                console.log(`   Root bone start pos: (${rootBone.position.x.toFixed(2)}, ${rootBone.position.y.toFixed(2)}, ${rootBone.position.z.toFixed(2)})`);
             }
 
             update(deltaTime) {
@@ -588,45 +585,52 @@
             updateFrame(sequence, now) {
                 const numFrames = sequence.numFrames;
                 const idSize = sequence.nodeIndex.length;
-                if (numFrames === 0 || idSize === 0 || sequence.samples.length === 0) {
-                    return false;
-                }
-
-                const fpsRate = sequence.fpsRate;
-                const frame = (now * fpsRate) / 1000.0;
-                let frameA = Math.floor(frame);
-                let frameB = frameA + 1;
-                const a = frame - frameA;
-
-                if (sequence.animCls === 'Loop') {
-                    frameA = frameA % numFrames;
-                    frameB = frameB % numFrames;
-                } else {
-                    frameA = Math.min(frameA, numFrames - 1);
-                    frameB = Math.min(frameB, numFrames - 1);
-                }
-
-                const sampleA = frameA * idSize;
-                const sampleB = frameB * idSize;
-
+                
+                if (numFrames < 1 || idSize === 0) return false;
+                
+                // Calculate frame progress
+                const timePart = (now / sequence.totalTime()) * numFrames;
+                const frame0 = Math.floor(timePart);
+                const frame1 = frame0 + 1;
+                const alpha = timePart - frame0;
+                
+                // Update base transforms for each animated node
                 for (let i = 0; i < idSize; i++) {
-                    const idx = sequence.nodeIndex[i];
-                    if (idx >= this.numBones) continue;
-
-                    const sampA = sequence.samples[sampleA + i];
-                    const sampB = sequence.samples[sampleB + i];
-                    this.base[idx] = mixSample(sampA, sampB, a);
+                    const nodeId = sequence.nodeIndex[i];
+                    if (nodeId < 0 || nodeId >= this.numBones) continue;
+                    
+                    // Get sample indices
+                    const idx0 = (frame0 % numFrames) * idSize + i;
+                    const idx1 = (frame1 % numFrames) * idSize + i;
+                    
+                    const s0 = sequence.samples[idx0];
+                    const s1 = sequence.samples[idx1];
+                    
+                    if (!s0 || !s1) continue;
+                    
+                    // Interpolate position
+                    const pos = {
+                        x: s0.position.x + (s1.position.x - s0.position.x) * alpha,
+                        y: s0.position.y + (s1.position.y - s0.position.y) * alpha,
+                        z: s0.position.z + (s1.position.z - s0.position.z) * alpha
+                    };
+                    
+                    // Interpolate rotation (quaternion slerp)
+                    const q0 = new THREE.Quaternion(s0.rotation.x, s0.rotation.y, s0.rotation.z, s0.rotation.w);
+                    const q1 = new THREE.Quaternion(s1.rotation.x, s1.rotation.y, s1.rotation.z, s1.rotation.w);
+                    const rot = q0.slerp(q1, alpha);
+                    
+                    this.base[nodeId] = {
+                        position: pos,
+                        rotation: { x: rot.x, y: rot.y, z: rot.z, w: rot.w }
+                    };
                 }
-
+                
                 return true;
             }
 
             applyToSkeleton() {
                 if (!this.skeleton || !this.skeleton.bones) return;
-
-                const rootIdx = this.skeleton.rootNodes && this.skeleton.rootNodes.length > 0
-                    ? this.skeleton.rootNodes[0]
-                    : -1;
 
                 for (let i = 0; i < this.skeleton.bones.length; i++) {
                     const bone = this.skeleton.bones[i];
@@ -643,6 +647,15 @@
                         
                         // Apply animation sample to bone
                         bone.position.set(pos.x, pos.y, pos.z);
+                        
+                        // CRITICAL: Animation samples are in local space without root translation.
+                        // We must add root translation back to root bones to keep them in correct world space.
+                        if (this.skeleton.rootNodes.includes(i)) {
+                            bone.position.x += this.skeleton.rootTr.x;
+                            bone.position.y += this.skeleton.rootTr.y;
+                            bone.position.z += this.skeleton.rootTr.z;
+                        }
+                        
                         bone.quaternion.set(rot.x, rot.y, rot.z, rot.w);
                         bone.scale.set(1, 1, 1);
                     }
