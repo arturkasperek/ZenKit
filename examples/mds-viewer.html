@@ -267,7 +267,6 @@
         let overlayAnimations = []; // Animations from overlay MDS (with source base)
         let overlayDisabled = []; // Disabled animations from overlay
         let headMeshesAvailable = null; // Unknown; set false if assets missing
-        let headPivotHelper = null; // Visual helper pinned to the head bone pivot
         let headNodeIndex = -1; // Index of the head bone in the skeleton
         let skeletonHelper = null; // Visualize bones
         let activeMeshName = null; // Currently selected mesh to load (null = default from MDS)
@@ -1455,12 +1454,6 @@
                     if (skeletonHelper.material) skeletonHelper.material.dispose();
                     skeletonHelper = null;
                 }
-                if (headPivotHelper) {
-                    if (headPivotHelper.parent) {
-                        headPivotHelper.parent.remove(headPivotHelper);
-                    }
-                    headPivotHelper = null;
-                }
 
                 // Get hierarchy to build skeleton
                 const hierarchy = model.getHierarchy();
@@ -1515,59 +1508,6 @@
                             console.log(`   [${j}] ${nodeName} (parent: ${node.parentIndex})`);
                         }
                     }
-                    if (nodeCount > 10) {
-                        console.log(`   ... and ${nodeCount - 10} more nodes`);
-                    }
-                    // Attach a small axes helper to visualize the head pivot/origin
-                    if (headNodeIndex >= 0 && skeleton && skeleton.bones && headNodeIndex < skeleton.bones.length) {
-                        const headBone = skeleton.bones[headNodeIndex];
-                        if (headPivotHelper && headPivotHelper.parent) {
-                            headPivotHelper.parent.remove(headPivotHelper);
-                        }
-                        // Bold axes (mesh-based) + marker for clear visibility
-                        const axisGroup = new THREE.Group();
-                        const axisDefs = [
-                            { dir: new THREE.Vector3(1, 0, 0), color: 0xff4040 }, // X
-                            { dir: new THREE.Vector3(0, 1, 0), color: 0x40ff40 }, // Y
-                            { dir: new THREE.Vector3(0, 0, 1), color: 0x4080ff }  // Z
-                        ];
-                        for (const def of axisDefs) {
-                            const dir = def.dir.clone().normalize();
-                            const rot = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-
-                            const shaft = new THREE.Mesh(
-                                new THREE.CylinderGeometry(0.6, 0.6, 12, 8),
-                                new THREE.MeshBasicMaterial({ color: def.color, depthTest: false })
-                            );
-                            shaft.position.copy(dir).multiplyScalar(6);
-                            shaft.quaternion.copy(rot);
-                            shaft.renderOrder = 5;
-                            axisGroup.add(shaft);
-
-                            const tip = new THREE.Mesh(
-                                new THREE.ConeGeometry(1.4, 3.5, 8),
-                                new THREE.MeshBasicMaterial({ color: def.color, depthTest: false })
-                            );
-                            tip.position.copy(dir).multiplyScalar(6 + 2.5);
-                            tip.quaternion.copy(rot);
-                            tip.renderOrder = 5;
-                            axisGroup.add(tip);
-                        }
-
-                        const marker = new THREE.Mesh(
-                            new THREE.SphereGeometry(1.8, 10, 10),
-                            new THREE.MeshBasicMaterial({ color: 0xffff00, depthTest: false })
-                        );
-                        marker.renderOrder = 6;
-
-                        headPivotHelper = new THREE.Group();
-                        headPivotHelper.add(axisGroup);
-                        headPivotHelper.add(marker);
-                        headBone.add(headPivotHelper);
-                    }
-
-                    // Do not offset modelGroup by rootTranslation; bones already include it
-                    const rootNodeTranslation = new THREE.Vector3(0, 0, 0);
 
                     let renderedCount = 0;
                     for (let i = 0; i < softSkinCount; i++) {
