@@ -311,18 +311,10 @@
         let isMouseDown = false;
         let lastMouseX = 0, lastMouseY = 0;
 
-        // ====================================================================
-        // ANIMATION MATH UTILITIES (Port of OpenGothic's animmath.cpp)
-        // ====================================================================
-
         function mix(x, y, a) {
             return x + (y - x) * a;
         }
 
-        /**
-         * Quaternion spherical linear interpolation
-         * Port of OpenGothic's slerp function
-         */
         function slerp(q1, q2, t) {
             let z = { x: q2.x, y: q2.y, z: q2.z, w: q2.w };
             let cosTheta = q1.x * q2.x + q1.y * q2.y + q1.z * q2.z + q1.w * q2.w;
@@ -354,10 +346,6 @@
             };
         }
 
-        /**
-         * Interpolate AnimationSample (position + rotation)
-         * Port of OpenGothic's mix function
-         */
         function mixSample(sample1, sample2, t) {
             return {
                 rotation: slerp(sample1.rotation, sample2.rotation, t),
@@ -368,10 +356,6 @@
                 }
             };
         }
-
-        // ====================================================================
-        // SKELETON CLASS (Port of OpenGothic's Skeleton)
-        // ====================================================================
 
         class Skeleton {
             constructor(hierarchy) {
@@ -475,10 +459,6 @@
             }
         }
 
-        // ====================================================================
-        // ANIMATION CLASSES (Port of OpenGothic's Animation)
-        // ====================================================================
-
         class AnimationSequence {
             constructor(manData, mdsAnimation) {
                 this.name = manData.name;
@@ -538,10 +518,6 @@
                 return this.sequences.get(name.toUpperCase());
             }
         }
-
-        // ====================================================================
-        // POSE CLASS (Port of OpenGothic's Pose)
-        // ====================================================================
 
         class Pose {
             constructor(skeleton) {
@@ -702,10 +678,6 @@
             }
         }
 
-        // ====================================================================
-        // CPU SKINNING (Port of Gothic's RenderSoftSkin approach)
-        // ====================================================================
-        
         /**
          * Apply CPU skinning - transforms vertices using bone matrices on CPU
          * Uses a hybrid approach: bind pose vertices + bone-local weight positions
