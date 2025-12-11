@@ -1268,6 +1268,9 @@ namespace zenkit::wasm {
             return animation_.node_indices[nodeIndex];
         }
 
+        /// \brief Get number of node indices (mapping MAN -> hierarchy)
+        uint32_t getNodeIndexCount() const { return static_cast<uint32_t>(animation_.node_indices.size()); }
+
         /// \brief Get the underlying animation
         const zenkit::ModelAnimation& getAnimation() const { return animation_; }
 

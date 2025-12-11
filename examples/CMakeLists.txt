@@ -19,7 +19,10 @@ target_link_libraries(extract_vdf PRIVATE zenkit)
 add_executable(bootstrap_assets bootstrap_assets.cc)
 target_link_libraries(bootstrap_assets PRIVATE zenkit)
 
-set_target_properties(load_vdf load_zen load_zen_direct run_interpreter zen2zen extract_vdf bootstrap_assets
+add_executable(test_original test_original.cc)
+target_link_libraries(test_original PRIVATE zenkit)
+
+set_target_properties(load_vdf load_zen load_zen_direct run_interpreter zen2zen extract_vdf bootstrap_assets test_original
 		PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/examples"
 		)

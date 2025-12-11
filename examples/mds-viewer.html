@@ -393,8 +393,12 @@
                 this.rootNodes = [];
                 this.bones = []; // Array of THREE.Bone
                 this.rootTr = { x: 0, y: 0, z: 0 };
+                this.bindLocal = [];
+                this.bindWorld = [];
 
                 const nodeCount = hierarchy.nodes.size();
+                const rt = hierarchy.rootTranslation;
+                this.rootTr = { x: rt.x, y: rt.y, z: rt.z };
 
                 // 1. Create Bones
                 for (let i = 0; i < nodeCount; i++) {
@@ -430,6 +434,13 @@
 
                     const mat = this.matrix4x4DataToMatrix4(node.transform);
 
+                    // Apply root translation to root bones (once, like native engine bind)
+                    if (node.parent === -1) {
+                        mat.elements[12] += this.rootTr.x;
+                        mat.elements[13] += this.rootTr.y;
+                        mat.elements[14] += this.rootTr.z;
+                    }
+
                     // Decompose matrix to pos/quat/scale
                     const pos = new THREE.Vector3();
                     const quat = new THREE.Quaternion();
@@ -439,13 +450,22 @@
                     bone.position.copy(pos);
                     bone.quaternion.copy(quat);
                     bone.scale.copy(scale);
+
+                    this.bindLocal[i] = mat.clone();
                 }
 
-                // 4. Store Root Translation (will be applied during animation)
-                const rt = hierarchy.rootTranslation;
-                this.rootTr = { x: rt.x, y: rt.y, z: rt.z };
+                // 4. Compute bind-pose world matrices
+                for (let i = 0; i < this.nodes.length; i++) {
+                    const parentIdx = this.nodes[i].parent;
+                    if (parentIdx >= 0) {
+                        this.bindWorld[i] = new THREE.Matrix4().multiplyMatrices(this.bindWorld[parentIdx], this.bindLocal[i]);
+                    } else {
+                        this.bindWorld[i] = this.bindLocal[i].clone();
+                    }
+                }
+                this.animWorld = this.bindWorld.map(m => m.clone());
 
-                // 5. Compute bind-pose inverses (WITHOUT root translation applied yet)
+                // 5. Compute bind-pose inverses (still stored for compatibility)
                 for (const rootIdx of this.rootNodes) {
                     this.bones[rootIdx].updateMatrixWorld(true);
                 }
@@ -632,38 +652,48 @@
             applyToSkeleton() {
                 if (!this.skeleton || !this.skeleton.bones) return;
 
-                for (let i = 0; i < this.skeleton.bones.length; i++) {
-                    const bone = this.skeleton.bones[i];
-                    const sample = this.base[i];
+                const nodeCount = this.skeleton.nodes.length;
+                const animLocal = new Array(nodeCount);
+                const animWorld = new Array(nodeCount);
 
+                // Build local matrices: use sample if present, otherwise bindLocal
+                for (let i = 0; i < nodeCount; i++) {
+                    const sample = this.base[i];
                     if (sample) {
-                        let rot = sample.rotation;
-                        let pos = sample.position;
-                        
-                        // Gothic uses left-handed coordinate system (DirectX), 
-                        // Three.js uses right-handed (OpenGL).
-                        // Convert rotation by conjugating quaternion: negate xyz, keep w
-                        rot = { x: -rot.x, y: -rot.y, z: -rot.z, w: rot.w };
-                        
-                        // Apply animation sample to bone
-                        if (this.skeleton.rootNodes.includes(i)) {
-                            // Samples are in root-local space; bind pose already carried rootTr.
-                            // Subtract rootTr here to avoid double-applying translation.
-                            bone.position.set(
-                                pos.x - this.skeleton.rootTr.x,
-                                pos.y - this.skeleton.rootTr.y,
-                                pos.z - this.skeleton.rootTr.z
-                            );
-                        } else {
-                            bone.position.set(pos.x, pos.y, pos.z);
-                        }
-                        
-                        bone.quaternion.set(rot.x, rot.y, rot.z, rot.w);
-                        bone.scale.set(1, 1, 1);
+                        const pos = new THREE.Vector3(sample.position.x, sample.position.y, sample.position.z);
+                        const rot = new THREE.Quaternion(sample.rotation.x, sample.rotation.y, sample.rotation.z, sample.rotation.w);
+                        animLocal[i] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));
+                    } else {
+                        animLocal[i] = this.skeleton.bindLocal[i].clone();
                     }
                 }
 
-                // Update bone world matrices (needed for CPU skinning)
+                // Build world matrices following hierarchy
+                for (let i = 0; i < nodeCount; i++) {
+                    const parentIdx = this.skeleton.nodes[i].parent;
+                    if (parentIdx >= 0) {
+                        animWorld[i] = new THREE.Matrix4().multiplyMatrices(animWorld[parentIdx], animLocal[i]);
+                    } else {
+                        animWorld[i] = animLocal[i].clone();
+                    }
+                }
+
+                // Apply to bones for visualization
+                for (let i = 0; i < nodeCount; i++) {
+                    const bone = this.skeleton.bones[i];
+                    const pos = new THREE.Vector3();
+                    const quat = new THREE.Quaternion();
+                    const scl = new THREE.Vector3();
+                    animLocal[i].decompose(pos, quat, scl);
+                    bone.position.copy(pos);
+                    bone.quaternion.copy(quat);
+                    bone.scale.copy(scl);
+                }
+
+                // Store for CPU skinning
+                this.skeleton.animWorld = animWorld;
+
+                // Update bone world matrices (for helpers)
                 for (const rootIdx of this.skeleton.rootNodes) {
                     this.skeleton.bones[rootIdx].updateMatrixWorld(true);
                 }
@@ -718,6 +748,9 @@
          * Apply CPU skinning - transforms vertices using bone matrices on CPU
          * Uses a hybrid approach: bind pose vertices + bone-local weight positions
          */
+        // Toggle in console: window.DEBUG_SKINNING = true;
+        window.DEBUG_SKINNING = window.DEBUG_SKINNING || true;
+
         function applyCPUSkinning() {
             if (!cpuSkinningData || !skeleton) return;
             
@@ -726,8 +759,9 @@
             const normalAttribute = geometry.getAttribute('normal');
             
             // Get bone world matrices and inverse bind matrices
-            const boneMatrices = skeleton.bones.map(bone => bone.matrixWorld);
+            const boneMatrices = skeleton.animWorld || skeleton.bones.map(bone => bone.matrixWorld);
             const boneInverses = skeleton.threeSkeleton.boneInverses;
+            const debugPayload = window.DEBUG_SKINNING ? { tag: 'SkinningDebug', bones: [], vertices: [] } : null;
             
             // Transform each vertex
             for (let i = 0; i < vertexWeights.length; i++) {
@@ -747,7 +781,6 @@
                     for (const { boneIndex, weight, position, normal } of weights) {
                         if (boneIndex >= boneMatrices.length) continue;
                         
-                        // Gothic: resultPos += weight * (boneMatrix * weightEntry.position)
                         const vertPosOS = new THREE.Vector3(position.x, position.y, position.z);
                         const transformedPos = vertPosOS.applyMatrix4(boneMatrices[boneIndex]);
                         resultPos.addScaledVector(transformedPos, weight);
@@ -757,6 +790,18 @@
                             const mat3 = new THREE.Matrix3().setFromMatrix4(boneMatrices[boneIndex]);
                             const transformedNormal = vertNormalOS.applyMatrix3(mat3);
                             resultNormal.addScaledVector(transformedNormal, weight);
+                        }
+
+                        if (debugPayload && i === 0) {
+                            debugPayload.vertices.push({
+                                index: i,
+                                weight,
+                                boneIndex,
+                                posLH: { x: position.x, y: position.y, z: position.z },
+                                posRH: { x: vertPosOS.x, y: vertPosOS.y, z: vertPosOS.z },
+                                bonePos: { x: boneMatrices[boneIndex].elements[12], y: boneMatrices[boneIndex].elements[13], z: boneMatrices[boneIndex].elements[14] },
+                                contrib: { x: transformedPos.x * weight, y: transformedPos.y * weight, z: transformedPos.z * weight }
+                            });
                         }
                     }
                     
@@ -802,6 +847,23 @@
             // Mark attributes as needing update
             posAttribute.needsUpdate = true;
             normalAttribute.needsUpdate = true;
+
+            if (debugPayload) {
+                // Include first few bones’ translations for quick sanity check
+                const bonesToLog = [0, 6, 15, 16, 27, 28];
+                for (const bi of bonesToLog) {
+                    if (!boneMatrices[bi]) continue;
+                    debugPayload.bones.push({
+                        index: bi,
+                        pos: {
+                            x: boneMatrices[bi].elements[12],
+                            y: boneMatrices[bi].elements[13],
+                            z: boneMatrices[bi].elements[14]
+                        }
+                    });
+                }
+                console.log(JSON.stringify(debugPayload));
+            }
         }
 
         function updateStatus(message, type = 'loading') {

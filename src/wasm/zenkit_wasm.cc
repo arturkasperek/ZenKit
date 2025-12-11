@@ -357,6 +357,7 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
         .function("getLayer", &ModelAnimationWrapper::getLayer)
         .function("getFrameCount", &ModelAnimationWrapper::getFrameCount)
         .function("getNodeCount", &ModelAnimationWrapper::getNodeCount)
+        .function("getNodeIndexCount", &ModelAnimationWrapper::getNodeIndexCount)
         .function("getFps", &ModelAnimationWrapper::getFps)
         .function("getFpsSource", &ModelAnimationWrapper::getFpsSource)
         .function("getSampleCount", &ModelAnimationWrapper::getSampleCount)
