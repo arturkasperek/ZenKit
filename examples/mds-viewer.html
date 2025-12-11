@@ -272,6 +272,7 @@
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
         let pose = null; // Custom Pose class instance
+        const DEFAULT_RUN_SEQUENCE = ['t_Run_2_RunL', 's_RunL', 't_RunL_2_Run'];
         const DEFAULT_MDS = 'HumanS.mds';
         const DEFAULT_OVERLAY = null; // No default overlay
         let currentMdsBaseName = 'HumanS'; // Store the MDS base name (from MDS file)
@@ -588,6 +589,17 @@
                     this.animTime = this.animTime % totalTime;
                 }
 
+                // For non-looping animations, clamp to end and stop
+                if (this.currentSeq.animCls !== 'Loop' && this.animTime >= totalTime) {
+                    // Apply final frame once
+                    const updated = this.updateFrame(this.currentSeq, totalTime);
+                    if (updated) {
+                        this.applyToSkeleton();
+                    }
+                    this.currentSeq = null; // stop playback
+                    return updated;
+                }
+
                 const updated = this.updateFrame(this.currentSeq, this.animTime);
                 if (updated) {
                     this.applyToSkeleton();
@@ -602,10 +614,12 @@
                 if (numFrames < 1 || idSize === 0) return false;
                 
                 // Calculate frame progress
-                const timePart = (now / sequence.totalTime()) * numFrames;
-                const frame0 = Math.floor(timePart);
-                const frame1 = frame0 + 1;
-                const alpha = timePart - frame0;
+                const totalTime = sequence.totalTime();
+                const clampedNow = Math.min(now, Math.max(0, totalTime)); // allow exact last frame
+                const timePart = (clampedNow / totalTime) * numFrames;
+                const frame0 = Math.min(numFrames - 1, Math.floor(timePart));
+                const frame1 = Math.min(numFrames - 1, frame0 + 1);
+                const alpha = frame0 === numFrames - 1 ? 0 : (timePart - frame0);
                 
                 // Update base transforms for each animated node
                 for (let i = 0; i < idSize; i++) {
@@ -613,8 +627,8 @@
                     if (nodeId < 0 || nodeId >= this.numBones) continue;
                     
                     // Get sample indices
-                    const idx0 = (frame0 % numFrames) * idSize + i;
-                    const idx1 = (frame1 % numFrames) * idSize + i;
+                    const idx0 = frame0 * idSize + i;
+                    const idx1 = frame1 * idSize + i;
                     
                     const s0 = sequence.samples[idx0];
                     const s1 = sequence.samples[idx1];
@@ -1032,6 +1046,54 @@
             console.log(`➕ Added to sequence: ${animationName} (total: ${animationSequence.length})`);
         }
 
+        function setDefaultRunSequence(mds, extraAnimations = []) {
+            if (!mds) return;
+
+            const descriptors = [];
+
+            for (const name of DEFAULT_RUN_SEQUENCE) {
+                let desc = null;
+
+                // Search base animations
+                const baseCount = mds.getAnimationCount ? mds.getAnimationCount() : 0;
+                for (let i = 0; i < baseCount; i++) {
+                    if (mds.getAnimationName(i) === name) {
+                        desc = {
+                            name,
+                            flags: mds.getAnimationFlags(i),
+                            next: mds.getAnimationNext(i)
+                        };
+                        break;
+                    }
+                }
+
+                // Search overlay / extra animations
+                if (!desc) {
+                    for (const extra of extraAnimations) {
+                        if (extra.name === name) {
+                            desc = {
+                                name,
+                                flags: extra.flags,
+                                next: extra.next
+                            };
+                            break;
+                        }
+                    }
+                }
+
+                if (!desc) {
+                    console.log(`ℹ️ Default run sequence missing '${name}' in current MDS/overlay; skipping auto-sequence`);
+                    return;
+                }
+
+                descriptors.push({ name, mdsAnim: desc });
+            }
+
+            animationSequence = descriptors;
+            updateSequenceUI();
+            console.log('🎬 Default sequence set: t_Run_2_RunL → s_RunL → t_RunL_2_Run');
+        }
+
         function clearSequence() {
             animationSequence = [];
             isPlayingSequence = false;
@@ -1173,6 +1235,9 @@
         async function loadMdsFile(mdsFileName = DEFAULT_MDS, overlayFileName = null) {
             try {
                 updateStatus('📖 Loading MDS file...', 'loading');
+                // Reset sequence state on new load
+                animationSequence = [];
+                isPlayingSequence = false;
 
                 // Store the base name (without path/ext) for later use with animations
                 const mdsFileOnly = mdsFileName.split('/').pop() || mdsFileName;
@@ -1241,6 +1306,9 @@
 
                 // Display information (base + overlay animations)
                 displayMdsInfo(mds, overlayAnimations, overlayDisabled);
+
+                // Set a default run sequence if all required animations are present
+                setDefaultRunSequence(mds, overlayAnimations);
 
                 // Load and render the skeleton mesh (pass MDS filename for MDH lookup)
                 await loadAndRenderSkeleton(mds, mdsFileName);
@@ -2126,6 +2194,9 @@
                 console.warn(`⚠️ Animation ${animationName} not found`);
                 return;
             }
+
+            // Force one-shot play (no looping)
+            seq.animCls = 'Once';
 
             pose.startAnim(seq);
             pose.animTime = 0;
