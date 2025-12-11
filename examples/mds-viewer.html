@@ -254,7 +254,6 @@
         let scene, camera, renderer;
         let modelMesh = null;
         let characterMesh = null; // The CPU-skinned mesh
-        let cpuSkinningData = null; // Data needed for CPU skinning (deprecated - use mesh.userData.cpuSkinningData)
         let skinnedMeshes = []; // Array of all meshes that need CPU skinning
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
@@ -1448,7 +1447,6 @@
                 
                 // Clear skinned meshes array
                 skinnedMeshes = [];
-                cpuSkinningData = null; // Clear global reference for backward compatibility
                 if (skeletonHelper) {
                     scene.remove(skeletonHelper);
                     if (skeletonHelper.material) skeletonHelper.material.dispose();
