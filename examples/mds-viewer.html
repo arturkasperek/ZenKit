@@ -282,7 +282,6 @@
         let headPivotHelper = null; // Visual helper pinned to the head bone pivot
         let headNodeIndex = -1; // Index of the head bone in the skeleton
         let skeletonHelper = null; // Visualize bones
-        let boneLabels = []; // Sprites with bone ids
         let activeMeshName = null; // Currently selected mesh to load (null = default from MDS)
         let activeHeadName = null; // Currently selected head (null = auto-detect)
         let showFemaleHeads = false; // Toggle between male/female head lists
@@ -712,9 +711,6 @@
          * Apply CPU skinning - transforms vertices using bone matrices on CPU
          * Uses a hybrid approach: bind pose vertices + bone-local weight positions
          */
-        // Toggle in console: window.DEBUG_SKINNING = true;
-        window.DEBUG_SKINNING = window.DEBUG_SKINNING || false;
-
         function applyCPUSkinning(skinningData = null) {
             // If no specific skinning data provided, apply to all tracked meshes
             if (!skinningData) {
@@ -735,7 +731,6 @@
             // Get bone world matrices and inverse bind matrices
             const boneMatrices = skeleton.animWorld || skeleton.bones.map(bone => bone.matrixWorld);
             const boneInverses = skeleton.threeSkeleton.boneInverses;
-            const debugPayload = window.DEBUG_SKINNING ? { tag: 'SkinningDebug', bones: [], vertices: [] } : null;
             
             // Transform each vertex
             for (let i = 0; i < vertexWeights.length; i++) {
@@ -766,17 +761,6 @@
                             resultNormal.addScaledVector(transformedNormal, weight);
                         }
 
-                        if (debugPayload && i === 0) {
-                            debugPayload.vertices.push({
-                                index: i,
-                                weight,
-                                boneIndex,
-                                posLH: { x: position.x, y: position.y, z: position.z },
-                                posRH: { x: vertPosOS.x, y: vertPosOS.y, z: vertPosOS.z },
-                                bonePos: { x: boneMatrices[boneIndex].elements[12], y: boneMatrices[boneIndex].elements[13], z: boneMatrices[boneIndex].elements[14] },
-                                contrib: { x: transformedPos.x * weight, y: transformedPos.y * weight, z: transformedPos.z * weight }
-                            });
-                        }
                     }
                     
                     posAttribute.setXYZ(i, resultPos.x, resultPos.y, resultPos.z);
@@ -822,22 +806,6 @@
             posAttribute.needsUpdate = true;
             normalAttribute.needsUpdate = true;
 
-            if (debugPayload) {
-                // Include first few bones’ translations for quick sanity check
-                const bonesToLog = [0, 6, 15, 16, 27, 28];
-                for (const bi of bonesToLog) {
-                    if (!boneMatrices[bi]) continue;
-                    debugPayload.bones.push({
-                        index: bi,
-                        pos: {
-                            x: boneMatrices[bi].elements[12],
-                            y: boneMatrices[bi].elements[13],
-                            z: boneMatrices[bi].elements[14]
-                        }
-                    });
-                }
-                console.log(JSON.stringify(debugPayload));
-            }
         }
 
         function updateStatus(message, type = 'loading') {
@@ -1417,29 +1385,6 @@
             }
         }
 
-        function createBoneLabel(text) {
-            const canvas = document.createElement('canvas');
-            const size = 96;
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, size, size);
-            ctx.fillStyle = 'rgba(0,0,0,0.35)';
-            ctx.fillRect(8, 8, size - 16, size - 16);
-            ctx.fillStyle = '#00ff00';
-            ctx.font = '24px monospace';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(text, size / 2, size / 2);
-
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.needsUpdate = true;
-            const material = new THREE.SpriteMaterial({ map: texture, depthTest: false });
-            const sprite = new THREE.Sprite(material);
-            sprite.scale.set(4, 4, 1);
-            return sprite;
-        }
-
         async function renderModel(model) {
             try {
                 // Remove existing mesh
@@ -1461,14 +1406,6 @@
                     if (skeletonHelper.material) skeletonHelper.material.dispose();
                     skeletonHelper = null;
                 }
-                if (boneLabels.length) {
-                    for (const label of boneLabels) {
-                        if (label.parent) label.parent.remove(label);
-                        if (label.material && label.material.map) label.material.map.dispose();
-                        if (label.material) label.material.dispose();
-                    }
-                    boneLabels = [];
-                }
                 if (headPivotHelper) {
                     if (headPivotHelper.parent) {
                         headPivotHelper.parent.remove(headPivotHelper);
@@ -1481,16 +1418,6 @@
 
                 // Build custom Skeleton class (mimics OpenGothic)
                 skeleton = new Skeleton(hierarchy);
-
-                // Log skeleton structure for arm/hand bones
-                console.log('🦴 Skeleton bone structure (arm/hand bones):');
-                for (let i = 0; i < skeleton.bones.length; i++) {
-                    const boneName = skeleton.bones[i].name?.toLowerCase() || '';
-                    if (boneName.includes('arm') || boneName.includes('hand') || boneName.includes('finger')) {
-                        const node = skeleton.nodes[i];
-                        console.log(`  [${i}] ${skeleton.bones[i].name} (parent: ${node.parent})`);
-                    }
-                }
 
                 // Initialize Pose
                 pose = new Pose(skeleton);
@@ -1776,14 +1703,6 @@
                     skeletonHelper.frustumCulled = false;
                     
                     scene.add(skeletonHelper);
-
-                    // Add labels to each bone for easier identification
-                    skeleton.bones.forEach((bone, idx) => {
-                        const label = createBoneLabel(`${idx}`);
-                        label.position.set(0, 5, 0); // offset so text is readable
-                        bone.add(label);
-                        boneLabels.push(label);
-                    });
                 }
 
                 // Adjust camera to view the model
