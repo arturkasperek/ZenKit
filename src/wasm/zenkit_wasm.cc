@@ -368,4 +368,26 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
     function("createModelAnimation", select_overload<std::unique_ptr<ModelAnimationWrapper>()>([]() {
         return std::make_unique<ModelAnimationWrapper>();
     }));
+
+    // AnimationSample (position + rotation)
+    value_object<AnimationSample>("AnimationSample")
+        .field("position", &AnimationSample::position)
+        .field("rotation", &AnimationSample::rotation);
+
+    // Register vector type for PoseEvaluator::evaluate result
+    register_vector<AnimationSample>("VectorAnimationSample");
+
+    // PoseEvaluator for animation sampling
+    class_<PoseEvaluator>("PoseEvaluator")
+        .constructor<>()
+        .function("setAnimation", select_overload<void(const zenkit::ModelAnimation&)>(&PoseEvaluator::setAnimation))
+        .function("setAnimationFromWrapper", select_overload<void(const ModelAnimationWrapper&)>(&PoseEvaluator::setAnimationFromWrapper))
+        .function("clear", &PoseEvaluator::clear)
+        .function("hasAnimation", &PoseEvaluator::hasAnimation)
+        .function("getFrameCount", &PoseEvaluator::getFrameCount)
+        .function("getNodeIndexCount", &PoseEvaluator::getNodeIndexCount)
+        .function("getNodeIndex", &PoseEvaluator::getNodeIndex)
+        .function("getFps", &PoseEvaluator::getFps)
+        .function("getTotalTimeMs", &PoseEvaluator::getTotalTimeMs)
+        .function("evaluate", &PoseEvaluator::evaluate);
 }

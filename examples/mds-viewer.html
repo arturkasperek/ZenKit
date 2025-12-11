@@ -257,7 +257,10 @@
         let skinnedMeshes = []; // Array of all meshes that need CPU skinning
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
-        let pose = null; // Custom Pose class instance
+        let poseEvaluator = null; // PoseEvaluator from ZenKit (WASM)
+        let currentAnimTimeMs = 0; // Current animation time in ms
+        let isAnimPlaying = false;
+        let isAnimLooping = false;
         const DEFAULT_RUN_SEQUENCE = ['t_Run_2_RunL', 's_RunL', 't_RunL_2_Run'];
         const DEFAULT_MDS = 'HumanS.mds';
         const DEFAULT_OVERLAY = null; // No default overlay
@@ -310,52 +313,6 @@
         let velocity = new THREE.Vector3();
         let isMouseDown = false;
         let lastMouseX = 0, lastMouseY = 0;
-
-        function mix(x, y, a) {
-            return x + (y - x) * a;
-        }
-
-        function slerp(q1, q2, t) {
-            let z = { x: q2.x, y: q2.y, z: q2.z, w: q2.w };
-            let cosTheta = q1.x * q2.x + q1.y * q2.y + q1.z * q2.z + q1.w * q2.w;
-
-            if (cosTheta < 0.0) {
-                z.x = -q2.x; z.y = -q2.y; z.z = -q2.z; z.w = -q2.w;
-                cosTheta = -cosTheta;
-            }
-
-            if (cosTheta > 1.0 - Number.EPSILON) {
-                return {
-                    w: mix(q1.w, z.w, t),
-                    x: mix(q1.x, z.x, t),
-                    y: mix(q1.y, z.y, t),
-                    z: mix(q1.z, z.z, t)
-                };
-            }
-
-            const angle = Math.acos(cosTheta);
-            const kx = Math.sin((1.0 - t) * angle);
-            const kz = Math.sin(t * angle);
-            const div = Math.sin(angle);
-
-            return {
-                w: (q1.w * kx + z.w * kz) / div,
-                x: (q1.x * kx + z.x * kz) / div,
-                y: (q1.y * kx + z.y * kz) / div,
-                z: (q1.z * kx + z.z * kz) / div
-            };
-        }
-
-        function mixSample(sample1, sample2, t) {
-            return {
-                rotation: slerp(sample1.rotation, sample2.rotation, t),
-                position: {
-                    x: mix(sample1.position.x, sample2.position.x, t),
-                    y: mix(sample1.position.y, sample2.position.y, t),
-                    z: mix(sample1.position.z, sample2.position.z, t)
-                }
-            };
-        }
 
         class Skeleton {
             constructor(hierarchy) {
@@ -519,163 +476,104 @@
             }
         }
 
-        class Pose {
-            constructor(skeleton) {
-                this.skeleton = skeleton;
-                this.base = [];
-                this.currentSeq = null;
-                this.animTime = 0;
-                this.numBones = skeleton.nodes.length;
-
-                for (let i = 0; i < this.numBones; i++) {
-                    this.base.push(null);
-                }
-
-                // Initial application (will leave bones in bind pose as base is all null)
-                this.applyToSkeleton();
+        // Pose evaluation is now handled by ZenKit PoseEvaluator (WASM).
+        function updatePoseFromEvaluator(deltaTime) {
+            if (!poseEvaluator || !skeleton) {
+                return false;
             }
 
-            startAnim(sequence) {
-                this.currentSeq = sequence;
-                this.animTime = 0;
+            if (!poseEvaluator.hasAnimation()) {
+                return false;
             }
 
-            update(deltaTime) {
-                if (!this.currentSeq) return false;
-
-                this.animTime += deltaTime;
-
-                const totalTime = this.currentSeq.totalTime();
-                if (this.currentSeq.animCls === 'Loop' && this.animTime >= totalTime) {
-                    this.animTime = this.animTime % totalTime;
-                }
-
-                // For non-looping animations, clamp to end and stop
-                if (this.currentSeq.animCls !== 'Loop' && this.animTime >= totalTime) {
-                    // Apply final frame once
-                    const updated = this.updateFrame(this.currentSeq, totalTime);
-                    if (updated) {
-                        this.applyToSkeleton();
-                    }
-                    this.currentSeq = null; // stop playback
-                    return updated;
-                }
-
-                const updated = this.updateFrame(this.currentSeq, this.animTime);
-                if (updated) {
-                    this.applyToSkeleton();
-                }
-                return updated;
+            const totalTime = poseEvaluator.getTotalTimeMs();
+            if (totalTime <= 0) {
+                return false;
             }
 
-            updateFrame(sequence, now) {
-                const numFrames = sequence.numFrames;
-                const idSize = sequence.nodeIndex.length;
-                
-                if (numFrames < 1 || idSize === 0) return false;
-                
-                // Calculate frame progress
-                const totalTime = sequence.totalTime();
-                const clampedNow = Math.min(now, Math.max(0, totalTime)); // allow exact last frame
-                const timePart = (clampedNow / totalTime) * numFrames;
-                const frame0 = Math.min(numFrames - 1, Math.floor(timePart));
-                const frame1 = Math.min(numFrames - 1, frame0 + 1);
-                const alpha = frame0 === numFrames - 1 ? 0 : (timePart - frame0);
-                
-                // Update base transforms for each animated node
-                for (let i = 0; i < idSize; i++) {
-                    const nodeId = sequence.nodeIndex[i];
-                    if (nodeId < 0 || nodeId >= this.numBones) continue;
-                    
-                    // Get sample indices
-                    const idx0 = frame0 * idSize + i;
-                    const idx1 = frame1 * idSize + i;
-                    
-                    const s0 = sequence.samples[idx0];
-                    const s1 = sequence.samples[idx1];
-                    
-                    if (!s0 || !s1) continue;
-                    
-                // Interpolate position
-                const pos = {
-                    x: s0.position.x + (s1.position.x - s0.position.x) * alpha,
-                    y: s0.position.y + (s1.position.y - s0.position.y) * alpha,
-                    z: s0.position.z + (s1.position.z - s0.position.z) * alpha
-                };
-                
-                // Interpolate rotation (quaternion slerp)
-                const q0 = new THREE.Quaternion(s0.rotation.x, s0.rotation.y, s0.rotation.z, s0.rotation.w);
-                const q1 = new THREE.Quaternion(s1.rotation.x, s1.rotation.y, s1.rotation.z, s1.rotation.w);
-                const rot = q0.slerp(q1, alpha);
-                
-                this.base[nodeId] = {
-                    position: pos,
-                    rotation: { x: rot.x, y: rot.y, z: rot.z, w: rot.w }
-                };
+            currentAnimTimeMs += deltaTime;
+
+            if (isAnimLooping) {
+                if (currentAnimTimeMs < 0 || currentAnimTimeMs >= totalTime) {
+                    currentAnimTimeMs = currentAnimTimeMs % totalTime;
                 }
-                
-                return true;
-            }
-
-            applyToSkeleton() {
-                if (!this.skeleton || !this.skeleton.bones) return;
-
-                const nodeCount = this.skeleton.nodes.length;
-                const animLocal = new Array(nodeCount);
-                const animWorld = new Array(nodeCount);
-
-                // Build local matrices: use sample if present, otherwise bindLocal
-                for (let i = 0; i < nodeCount; i++) {
-                    const sample = this.base[i];
-                    if (sample) {
-                        const pos = new THREE.Vector3(sample.position.x, sample.position.y, sample.position.z);
-                        let rot = new THREE.Quaternion(sample.rotation.x, sample.rotation.y, sample.rotation.z, sample.rotation.w);
-                        
-                        // Gothic uses left-handed coordinate system (DirectX), 
-                        // Three.js uses right-handed (OpenGL).
-                        // Convert rotation by conjugating quaternion: negate xyz, keep w
-                        rot = new THREE.Quaternion(-rot.x, -rot.y, -rot.z, rot.w);
-                        
-                        animLocal[i] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));
-                    } else {
-                        animLocal[i] = this.skeleton.bindLocal[i].clone();
-                    }
+            } else {
+                if (currentAnimTimeMs >= totalTime) {
+                    currentAnimTimeMs = totalTime;
+                    isAnimPlaying = false;
                 }
-
-                // Build world matrices following hierarchy
-                for (let i = 0; i < nodeCount; i++) {
-                    const parentIdx = this.skeleton.nodes[i].parent;
-                    if (parentIdx >= 0) {
-                        animWorld[i] = new THREE.Matrix4().multiplyMatrices(animWorld[parentIdx], animLocal[i]);
-                    } else {
-                        animWorld[i] = animLocal[i].clone();
-                    }
-                }
-
-                // Apply to bones for visualization
-                for (let i = 0; i < nodeCount; i++) {
-                    const bone = this.skeleton.bones[i];
-                    const pos = new THREE.Vector3();
-                    const quat = new THREE.Quaternion();
-                    const scl = new THREE.Vector3();
-                    animLocal[i].decompose(pos, quat, scl);
-                    bone.position.copy(pos);
-                    bone.quaternion.copy(quat);
-                    bone.scale.copy(scl);
-                }
-
-                // Store for CPU skinning
-                this.skeleton.animWorld = animWorld;
-
-                // Update bone world matrices (for helpers)
-                for (const rootIdx of this.skeleton.rootNodes) {
-                    this.skeleton.bones[rootIdx].updateMatrixWorld(true);
-                }
-                
-                if (skeletonHelper && typeof skeletonHelper.update === 'function') {
-                    skeletonHelper.update();
+                if (currentAnimTimeMs < 0) {
+                    currentAnimTimeMs = 0;
                 }
             }
+
+            const samples = poseEvaluator.evaluate(currentAnimTimeMs, isAnimLooping);
+            if (!samples || !Array.isArray(samples) || samples.length === 0) {
+                return false;
+            }
+
+            const nodeCount = skeleton.nodes.length;
+            const animLocal = new Array(nodeCount);
+            const animWorld = new Array(nodeCount);
+
+            // Start from bind pose
+            for (let i = 0; i < nodeCount; i++) {
+                animLocal[i] = skeleton.bindLocal[i].clone();
+            }
+
+            // Apply samples per animated node index
+            const nodeIndexCount = poseEvaluator.getNodeIndexCount();
+            for (let i = 0; i < nodeIndexCount; i++) {
+                const nodeId = poseEvaluator.getNodeIndex(i);
+                if (nodeId < 0 || nodeId >= nodeCount) {
+                    continue;
+                }
+
+                const sample = samples[i];
+                if (!sample) continue;
+
+                const pos = new THREE.Vector3(sample.position.x, sample.position.y, sample.position.z);
+                let rot = new THREE.Quaternion(sample.rotation.x, sample.rotation.y, sample.rotation.z, sample.rotation.w);
+
+                // Gothic (LH) -> Three.js (RH): conjugate quaternion
+                rot = new THREE.Quaternion(-rot.x, -rot.y, -rot.z, rot.w);
+
+                animLocal[nodeId] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));
+            }
+
+            // Build world matrices
+            for (let i = 0; i < nodeCount; i++) {
+                const parentIdx = skeleton.nodes[i].parent;
+                if (parentIdx >= 0) {
+                    animWorld[i] = new THREE.Matrix4().multiplyMatrices(animWorld[parentIdx], animLocal[i]);
+                } else {
+                    animWorld[i] = animLocal[i].clone();
+                }
+            }
+
+            // Apply to bones for visualization
+            for (let i = 0; i < nodeCount; i++) {
+                const bone = skeleton.bones[i];
+                const pos = new THREE.Vector3();
+                const quat = new THREE.Quaternion();
+                const scl = new THREE.Vector3();
+                animLocal[i].decompose(pos, quat, scl);
+                bone.position.copy(pos);
+                bone.quaternion.copy(quat);
+                bone.scale.copy(scl);
+            }
+
+            skeleton.animWorld = animWorld;
+
+            for (const rootIdx of skeleton.rootNodes) {
+                skeleton.bones[rootIdx].updateMatrixWorld(true);
+            }
+
+            if (skeletonHelper && typeof skeletonHelper.update === 'function') {
+                skeletonHelper.update();
+            }
+
+            return true;
         }
 
         /**
@@ -924,7 +822,7 @@
                 }
             }
 
-            // Animation loop for smooth movement
+            // Animation loop for smooth movement and pose evaluation
             let lastTime = performance.now();
             function animate() {
                 const now = performance.now();
@@ -933,11 +831,11 @@
 
                 updateMovement();
 
-                // Update pose animation and apply CPU skinning
-                if (pose) {
-                    const updated = pose.update(deltaTime);
+                // Update pose using PoseEvaluator and apply CPU skinning
+                if (poseEvaluator && skeleton && isAnimPlaying) {
+                    const updated = updatePoseFromEvaluator(deltaTime);
                     if (updated) {
-                        applyCPUSkinning(); // Apply to all skinned meshes
+                        applyCPUSkinning();
                     }
                 }
                 if (skeletonHelper && typeof skeletonHelper.update === 'function') {
@@ -1115,24 +1013,16 @@
                 const item = animationSequence[i];
                 console.log(`▶️ [${i + 1}/${animationSequence.length}] Playing: ${item.name}`);
                 
-                // Load the animation
+                // Load the animation and play it via PoseEvaluator
                 const seq = await loadAnimation(item.name, item.mdsAnim, currentMdsBaseName.toUpperCase());
-                if (seq && pose) {
-                    // Force animation to NOT loop in sequence (play once)
-                    const originalAnimCls = seq.animCls;
-                    seq.animCls = 'Once'; // Override to play once
-                    
-                    // Start animation and immediately update to first frame to avoid jump
-                    pose.startAnim(seq);
-                    pose.animTime = 0; // Ensure we start at frame 0
-                    pose.update(0); // Force immediate update to first frame
-                    
-                    // Wait for animation to complete
-                    const duration = seq.totalTime();
+                if (seq && seq._man && poseEvaluator) {
+                    isAnimLooping = false;
+                    currentAnimTimeMs = 0;
+                    poseEvaluator.setAnimationFromWrapper(seq._man);
+                    isAnimPlaying = true;
+
+                    const duration = poseEvaluator.getTotalTimeMs();
                     await new Promise(resolve => setTimeout(resolve, duration));
-                    
-                    // Restore original animation class for future non-sequence plays
-                    seq.animCls = originalAnimCls;
                 } else {
                     console.warn(`⚠️ Failed to load animation: ${item.name}`);
                 }
@@ -1431,8 +1321,8 @@
                 // Build custom Skeleton class (mimics OpenGothic)
                 skeleton = new Skeleton(hierarchy);
 
-                // Initialize Pose
-                pose = new Pose(skeleton);
+                // Initialize PoseEvaluator (WASM)
+                poseEvaluator = new ZenKit.PoseEvaluator();
 
                 // Initialize Animation
                 if (!animation) {
@@ -2047,6 +1937,8 @@
                 }
 
                 const seq = new AnimationSequence(man, mdsAnimation);
+                // Attach the underlying ModelAnimation wrapper for PoseEvaluator
+                seq._man = man;
                 if (!animation) {
                     animation = new Animation();
                 }
@@ -2061,25 +1953,24 @@
             }
         }
 
-        function playAnimation(animationName) {
-            if (!pose || !animation) {
-                console.warn('⚠️ No pose or animation system initialized');
+        async function playAnimation(animationName, mdsAnimation = null) {
+            if (!poseEvaluator) {
+                console.warn('⚠️ No pose evaluator initialized');
                 return;
             }
 
-            const seq = animation.sequence(animationName);
-            if (!seq) {
-                console.warn(`⚠️ Animation ${animationName} not found`);
+            const baseName = currentMdsBaseName.toUpperCase();
+            const seq = await loadAnimation(animationName, mdsAnimation, baseName);
+            if (!seq || !seq._man) {
+                console.warn(`⚠️ Animation ${animationName} could not be loaded for playback`);
                 return;
             }
 
-            // Force one-shot play (no looping)
-            seq.animCls = 'Once';
-
-            pose.startAnim(seq);
-            pose.animTime = 0;
-            pose.update(0); // Force first frame application immediately
-            applyCPUSkinning(); // Apply to all skinned meshes
+            // One-shot play
+            isAnimLooping = false;
+            currentAnimTimeMs = 0;
+            poseEvaluator.setAnimationFromWrapper(seq._man);
+            isAnimPlaying = true;
 
             // Update UI
             document.querySelectorAll('.animation-item').forEach(item => {
@@ -2482,7 +2373,7 @@
             console.log(`   - Animations: ${animCount}`);
 
             // Auto-load first animation if available (async, don't await here)
-            if (animCount > 0 && pose && animation) {
+            if (animCount > 0 && poseEvaluator && animation) {
                 const firstAnimName = mds.getAnimationName(0);
                 const mdsAnim = {
                     name: firstAnimName,
@@ -2491,11 +2382,8 @@
                 };
                 loadAnimation(firstAnimName, mdsAnim, currentMdsBaseName.toUpperCase()).then(seq => {
                     if (seq) {
-                        pose.startAnim(seq);
-                        console.log(`Auto-started animation: ${firstAnimName}`);
-
-                        // Note: Three.js SkinnedMesh handles bone matrices automatically
-                        // No manual matrix update needed
+                        console.log(`Auto-loaded animation: ${firstAnimName}`);
+                        // Further pose evaluation is handled via PoseEvaluator when playing explicitly.
                     }
                 });
             }

@@ -1279,4 +1279,71 @@ namespace zenkit::wasm {
         mutable std::string last_error_;
     };
 
+    /// \brief Wrapper representing a single animated sample (position + rotation)
+    struct AnimationSample {
+        zenkit::Vec3 position;
+        zenkit::Vec4 rotation;
+    };
+
+    /// \brief Wrapper for evaluating poses from a ModelAnimation over time
+    ///
+    /// This roughly corresponds to the Pose/AnimationSequence logic that was
+    /// implemented in JavaScript in the MDS viewer.
+    class PoseEvaluator {
+    public:
+        PoseEvaluator() = default;
+        ~PoseEvaluator() = default;
+
+        PoseEvaluator(const PoseEvaluator&) = delete;
+        PoseEvaluator& operator=(const PoseEvaluator&) = delete;
+        PoseEvaluator(PoseEvaluator&&) = default;
+        PoseEvaluator& operator=(PoseEvaluator&&) = default;
+
+        /// \brief Initialize evaluator from an animation
+        ///
+        /// Copies node indices and samples into a flattened representation.
+        void setAnimation(const zenkit::ModelAnimation& animation);
+
+        /// \brief Initialize evaluator from a ModelAnimationWrapper
+        ///
+        /// Convenience overload for WASM bindings – this lets JavaScript pass
+        /// a ModelAnimation instance directly.
+        void setAnimationFromWrapper(const ModelAnimationWrapper& wrapper);
+
+        /// \brief Clear current animation data
+        void clear();
+
+        /// \brief Check if an animation is set
+        bool hasAnimation() const noexcept { return frame_count_ > 0 && node_index_count_ > 0; }
+
+        /// \brief Get total number of frames
+        uint32_t getFrameCount() const noexcept { return frame_count_; }
+
+        /// \brief Get node index count (mapping entries)
+        uint32_t getNodeIndexCount() const noexcept { return node_index_count_; }
+
+        /// \brief Get node index mapping at position
+        uint32_t getNodeIndex(uint32_t index) const;
+
+        /// \brief Get animation FPS
+        float getFps() const noexcept { return fps_; }
+
+        /// \brief Get total duration in milliseconds
+        float getTotalTimeMs() const noexcept;
+
+        /// \brief Evaluate pose at a given time (milliseconds)
+        ///
+        /// \param now_ms  Time since start in milliseconds
+        /// \param loop    If true, time is wrapped into [0, totalTime)
+        /// \return JavaScript array of AnimationSample-like objects
+        emscripten::val evaluate(float now_ms, bool loop) const;
+
+    private:
+        uint32_t frame_count_ {0};
+        uint32_t node_index_count_ {0};
+        float fps_ {25.0f};
+        std::vector<uint32_t> node_indices_;
+        std::vector<AnimationSample> samples_;
+    };
+
 } // namespace zenkit::wasm

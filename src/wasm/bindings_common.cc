@@ -1840,4 +1840,159 @@ namespace zenkit::wasm {
         }
     }
 
+    void PoseEvaluator::setAnimation(const zenkit::ModelAnimation& animation) {
+        frame_count_ = animation.frame_count;
+        node_index_count_ = static_cast<uint32_t>(animation.node_indices.size());
+        fps_ = animation.fps;
+
+        node_indices_ = animation.node_indices;
+        samples_.clear();
+        samples_.reserve(animation.samples.size());
+
+        for (const auto& s : animation.samples) {
+            AnimationSample sample;
+            sample.position = s.position;
+            sample.rotation = zenkit::Vec4{s.rotation.x, s.rotation.y, s.rotation.z, s.rotation.w};
+            samples_.push_back(sample);
+        }
+    }
+
+    void PoseEvaluator::setAnimationFromWrapper(const ModelAnimationWrapper& wrapper) {
+        setAnimation(wrapper.getAnimation());
+    }
+
+    void PoseEvaluator::clear() {
+        frame_count_ = 0;
+        node_index_count_ = 0;
+        fps_ = 25.0f;
+        node_indices_.clear();
+        samples_.clear();
+    }
+
+    uint32_t PoseEvaluator::getNodeIndex(uint32_t index) const {
+        if (index >= node_index_count_ || index >= node_indices_.size()) {
+            return 0;
+        }
+        return node_indices_[index];
+    }
+
+    float PoseEvaluator::getTotalTimeMs() const noexcept {
+        if (frame_count_ == 0 || fps_ <= 0.0f) {
+            return 0.0f;
+        }
+        return static_cast<float>(frame_count_) * 1000.0f / fps_;
+    }
+
+    emscripten::val PoseEvaluator::evaluate(float now_ms, bool loop) const {
+        emscripten::val js_array = emscripten::val::array();
+
+        if (!hasAnimation()) {
+            return js_array;
+        }
+
+        const float total_time = getTotalTimeMs();
+        if (total_time <= 0.0f) {
+            return js_array;
+        }
+
+        float t = now_ms;
+        if (loop) {
+            if (t >= total_time || t < 0.0f) {
+                t = std::fmod(std::max(t, 0.0f), total_time);
+            }
+        } else {
+            if (t <= 0.0f) {
+                t = 0.0f;
+            } else if (t >= total_time) {
+                t = total_time;
+            }
+        }
+
+        const float num_frames_f = static_cast<float>(frame_count_);
+        const float time_part = (t / total_time) * num_frames_f;
+        const uint32_t frame0 = std::min<uint32_t>(frame_count_ - 1, static_cast<uint32_t>(std::floor(time_part)));
+        const uint32_t frame1 = std::min<uint32_t>(frame_count_ - 1, frame0 + 1);
+        const float alpha = (frame0 == frame_count_ - 1) ? 0.0f : (time_part - static_cast<float>(frame0));
+
+        for (uint32_t i = 0; i < node_index_count_; ++i) {
+            const size_t idx0 = static_cast<size_t>(frame0) * node_index_count_ + i;
+            const size_t idx1 = static_cast<size_t>(frame1) * node_index_count_ + i;
+
+            if (idx0 >= samples_.size() || idx1 >= samples_.size()) {
+                continue;
+            }
+
+            const auto& s0 = samples_[idx0];
+            const auto& s1 = samples_[idx1];
+
+            AnimationSample out {};
+
+            // Linear interpolation for position
+            out.position.x = s0.position.x + (s1.position.x - s0.position.x) * alpha;
+            out.position.y = s0.position.y + (s1.position.y - s0.position.y) * alpha;
+            out.position.z = s0.position.z + (s1.position.z - s0.position.z) * alpha;
+
+            // Quaternion slerp for rotation
+            // Convert to a simple float[4] representation for math
+            auto q1x = s0.rotation.x;
+            auto q1y = s0.rotation.y;
+            auto q1z = s0.rotation.z;
+            auto q1w = s0.rotation.w;
+
+            auto q2x = s1.rotation.x;
+            auto q2y = s1.rotation.y;
+            auto q2z = s1.rotation.z;
+            auto q2w = s1.rotation.w;
+
+            float cos_theta = q1x * q2x + q1y * q2y + q1z * q2z + q1w * q2w;
+            if (cos_theta < 0.0f) {
+                q2x = -q2x;
+                q2y = -q2y;
+                q2z = -q2z;
+                q2w = -q2w;
+                cos_theta = -cos_theta;
+            }
+
+            const float epsilon = std::numeric_limits<float>::epsilon();
+            if (cos_theta > 1.0f - epsilon) {
+                // Linear interpolation for nearly identical quaternions
+                out.rotation.x = q1x + (q2x - q1x) * alpha;
+                out.rotation.y = q1y + (q2y - q1y) * alpha;
+                out.rotation.z = q1z + (q2z - q1z) * alpha;
+                out.rotation.w = q1w + (q2w - q1w) * alpha;
+            } else {
+                const float angle = std::acos(cos_theta);
+                const float inv_sin = 1.0f / std::sin(angle);
+                const float k0 = std::sin((1.0f - alpha) * angle) * inv_sin;
+                const float k1 = std::sin(alpha * angle) * inv_sin;
+
+                out.rotation.x = q1x * k0 + q2x * k1;
+                out.rotation.y = q1y * k0 + q2y * k1;
+                out.rotation.z = q1z * k0 + q2z * k1;
+                out.rotation.w = q1w * k0 + q2w * k1;
+            }
+
+            // Convert to JS object
+            emscripten::val js_sample = emscripten::val::object();
+
+            emscripten::val js_pos = emscripten::val::object();
+            js_pos.set("x", out.position.x);
+            js_pos.set("y", out.position.y);
+            js_pos.set("z", out.position.z);
+
+            emscripten::val js_rot = emscripten::val::object();
+            js_rot.set("x", out.rotation.x);
+            js_rot.set("y", out.rotation.y);
+            js_rot.set("z", out.rotation.z);
+            js_rot.set("w", out.rotation.w);
+
+            js_sample.set("position", js_pos);
+            js_sample.set("rotation", js_rot);
+
+            js_array.call<void>("push", js_sample);
+        }
+
+        return js_array;
+    }
+
 } // namespace zenkit::wasm
