@@ -1488,7 +1488,7 @@
                         }
 
                         // Use CPU skinning with raw SoftSkinMesh data (Gothic's approach!)
-                        const { geometry, material, hasSkinning, skinningData } = await buildCPUSkinnedMeshGeometry(softSkinMesh, skeleton);
+                        const { geometry, material, hasSkinning, skinningData } = await buildSoftSkinGeometryCPU(softSkinMesh, skeleton);
 
                         // No geometry offset needed - we're using CPU skinning just like Gothic!
 
@@ -1603,7 +1603,7 @@
                             continue;
                         }
 
-                        const { geometry, material, hasSkinning: attachmentHasSkinning, skinningData: attachmentSkinningData } = await buildSkinnedMeshGeometry(processed, skeleton);
+                        const { geometry, material, hasSkinning: attachmentHasSkinning, skinningData: attachmentSkinningData } = await buildAttachmentGeometry(processed, skeleton);
                         const attachmentMesh = new THREE.Mesh(geometry, material);
 
                         // Store CPU skinning data on attachment mesh if it has skinning
@@ -1683,7 +1683,8 @@
          * Build geometry for CPU skinning directly from SoftSkinMesh raw data
          * Accesses vertex positions in bone-local space (like Gothic's vertPosOS)
          */
-        async function buildCPUSkinnedMeshGeometry(softSkinMesh, skeleton) {
+        // Build CPU-skinned geometry from raw soft-skin meshes (wedges/weights from MDS)
+        async function buildSoftSkinGeometryCPU(softSkinMesh, skeleton) {
             // Access the MultiResolutionMesh inside the SoftSkinMesh
             const mrMesh = softSkinMesh.mesh;
             const positions_raw = mrMesh.positions; // Raw positions in bone-local space!
@@ -1844,7 +1845,8 @@
             return { geometry, material, hasSkinning: true, skinningData };
         }
 
-        async function buildSkinnedMeshGeometry(processed, skeleton) {
+        // Build geometry (and optional CPU skinning data) from processed attachment mesh
+        async function buildAttachmentGeometry(processed, skeleton) {
             const idxCount = processed.indices.size();
             const matCount = processed.materials.size();
 
@@ -2229,7 +2231,7 @@
                             continue;
                         }
 
-                        const { geometry, material } = await buildSkinnedMeshGeometry(processed, skeleton);
+                        const { geometry, material } = await buildAttachmentGeometry(processed, skeleton);
                         const headMesh = new THREE.Mesh(geometry, material);
                         
                         // Disable frustum culling for head (attached to animated bone)
