@@ -190,19 +190,6 @@
 
         <div class="info-panel">
             <h1>ZenKit MDS Viewer</h1>
-            <div style="background: #1a4a1a; padding: 10px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #4aff4a;">
-                <div style="color: #aaffaa; font-size: 0.9em;">
-                    <strong>🖥️ CPU Skinning Mode</strong><br>
-                    <span style="font-size: 0.85em;">Vertex transformations computed on CPU each frame (like original Gothic)</span>
-                </div>
-            </div>
-            <div style="background: #1a4a1a; padding: 10px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #4aff4a;">
-                <div style="color: #aaffaa; font-size: 0.9em;">
-                    <strong>🖥️ CPU Skinning Mode</strong><br>
-                    <span style="font-size: 0.85em;">Using original Gothic engine approach - vertex transformations on CPU</span>
-                </div>
-            </div>
-
             <div id="content" style="display: none;">
                 <div class="info-section">
                     <h2>Skeleton Information</h2>
@@ -1194,12 +1181,6 @@
                 // Initialize Three.js
                 initThreeJS();
 
-                console.log('🖥️ ==============================================');
-                console.log('🖥️ CPU SKINNING MODE ENABLED');
-                console.log('🖥️ Using original Gothic engine approach');
-                console.log('🖥️ Vertex transformations performed on CPU');
-                console.log('🖥️ ==============================================');
-
                 // Setup head type toggle
                 const toggleHeadBtn = document.getElementById('toggle-head-type');
                 toggleHeadBtn.addEventListener('click', () => {
@@ -1950,17 +1931,6 @@
                 baseNormals: new Float32Array(normals)
             };
             
-            // Check if we have bone-local positions
-            const hasBoneLocalPos = vertexWeights.length > 0 && vertexWeights[0].length > 0 && vertexWeights[0][0].position;
-            
-            console.log(`✅ Built CPU-skinned geometry from raw soft-skin data`);
-            console.log(`   ${vertexWeights.length} vertices, ${skeleton.bones.length} bones`);
-            console.log(`   Bone-local positions: ${hasBoneLocalPos ? 'YES' : 'NO'}`);
-            console.log(`   Sample vertex 0: pos(${positions[0].toFixed(2)}, ${positions[1].toFixed(2)}, ${positions[2].toFixed(2)})`);
-            if (vertexWeights[0] && vertexWeights[0].length > 0) {
-                console.log(`   Sample weight 0:`, vertexWeights[0][0]);
-            }
-            
             return { geometry, material, hasSkinning: true, skinningData };
         }
 
@@ -2064,7 +2034,6 @@
                 // Create material array for each material group
                 const materialArray = [];
                 const matCount = processed.materials.size();
-                console.log(`📦 Processing ${matCount} materials for CPU-skinned mesh`);
 
                 for (let mi = 0; mi < matCount; mi++) {
                     const matData = processed.materials.get(mi);
@@ -2122,9 +2091,6 @@
                     basePositions: basePositions,
                     baseNormals: baseNormals
                 };
-                console.log(`✅ Prepared CPU skinning data: ${vertexWeights.length} vertices, ${skeleton.bones.length} bones`);
-                console.log(`   First vertex weights:`, vertexWeights[0]);
-                console.log(`   First vertex base pos:`, basePositions[0], basePositions[1], basePositions[2]);
             }
 
             return { geometry, material, hasSkinning, skinningData };
