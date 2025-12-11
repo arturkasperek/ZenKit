@@ -661,7 +661,13 @@
                     const sample = this.base[i];
                     if (sample) {
                         const pos = new THREE.Vector3(sample.position.x, sample.position.y, sample.position.z);
-                        const rot = new THREE.Quaternion(sample.rotation.x, sample.rotation.y, sample.rotation.z, sample.rotation.w);
+                        let rot = new THREE.Quaternion(sample.rotation.x, sample.rotation.y, sample.rotation.z, sample.rotation.w);
+                        
+                        // Gothic uses left-handed coordinate system (DirectX), 
+                        // Three.js uses right-handed (OpenGL).
+                        // Convert rotation by conjugating quaternion: negate xyz, keep w
+                        rot = new THREE.Quaternion(-rot.x, -rot.y, -rot.z, rot.w);
+                        
                         animLocal[i] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));
                     } else {
                         animLocal[i] = this.skeleton.bindLocal[i].clone();
