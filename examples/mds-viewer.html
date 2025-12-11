@@ -576,13 +576,6 @@
             startAnim(sequence) {
                 this.currentSeq = sequence;
                 this.animTime = 0;
-                
-                // Basic logging when animation starts
-                const rootNodeIdx = this.skeleton.rootNodes[0];
-                const rootBone = this.skeleton.bones[rootNodeIdx];
-                console.log(`▶️ Animation: ${sequence.name}, ${sequence.numFrames} frames @ ${sequence.fpsRate} FPS`);
-                console.log(`   Root translation: (${this.skeleton.rootTr.x.toFixed(2)}, ${this.skeleton.rootTr.y.toFixed(2)}, ${this.skeleton.rootTr.z.toFixed(2)})`);
-                console.log(`   Root bone start pos: (${rootBone.position.x.toFixed(2)}, ${rootBone.position.y.toFixed(2)}, ${rootBone.position.z.toFixed(2)})`);
             }
 
             update(deltaTime) {
@@ -628,22 +621,22 @@
                     
                     if (!s0 || !s1) continue;
                     
-                    // Interpolate position
-                    const pos = {
-                        x: s0.position.x + (s1.position.x - s0.position.x) * alpha,
-                        y: s0.position.y + (s1.position.y - s0.position.y) * alpha,
-                        z: s0.position.z + (s1.position.z - s0.position.z) * alpha
-                    };
-                    
-                    // Interpolate rotation (quaternion slerp)
-                    const q0 = new THREE.Quaternion(s0.rotation.x, s0.rotation.y, s0.rotation.z, s0.rotation.w);
-                    const q1 = new THREE.Quaternion(s1.rotation.x, s1.rotation.y, s1.rotation.z, s1.rotation.w);
-                    const rot = q0.slerp(q1, alpha);
-                    
-                    this.base[nodeId] = {
-                        position: pos,
-                        rotation: { x: rot.x, y: rot.y, z: rot.z, w: rot.w }
-                    };
+                // Interpolate position
+                const pos = {
+                    x: s0.position.x + (s1.position.x - s0.position.x) * alpha,
+                    y: s0.position.y + (s1.position.y - s0.position.y) * alpha,
+                    z: s0.position.z + (s1.position.z - s0.position.z) * alpha
+                };
+                
+                // Interpolate rotation (quaternion slerp)
+                const q0 = new THREE.Quaternion(s0.rotation.x, s0.rotation.y, s0.rotation.z, s0.rotation.w);
+                const q1 = new THREE.Quaternion(s1.rotation.x, s1.rotation.y, s1.rotation.z, s1.rotation.w);
+                const rot = q0.slerp(q1, alpha);
+                
+                this.base[nodeId] = {
+                    position: pos,
+                    rotation: { x: rot.x, y: rot.y, z: rot.z, w: rot.w }
+                };
                 }
                 
                 return true;
@@ -714,48 +707,12 @@
         // CPU SKINNING (Port of Gothic's RenderSoftSkin approach)
         // ====================================================================
         
-        // Indices to log when debugging first-frame vertex jumps
-        const DEBUG_VERTEX_INDICES = [0, 50, 200];
-
-        function logVertexSamples(label) {
-            if (!cpuSkinningData || !cpuSkinningData.geometry) {
-                console.log(JSON.stringify({ tag: 'VertexLog', label, error: 'cpuSkinningData not ready' }));
-                return;
-            }
-
-            const posAttr = cpuSkinningData.geometry.getAttribute('position');
-            const samples = [];
-
-            DEBUG_VERTEX_INDICES.forEach((idx) => {
-                const clamped = Math.max(0, Math.min(idx, posAttr.count - 1));
-                const bindX = cpuSkinningData.basePositions[clamped * 3 + 0];
-                const bindY = cpuSkinningData.basePositions[clamped * 3 + 1];
-                const bindZ = cpuSkinningData.basePositions[clamped * 3 + 2];
-
-                samples.push({
-                    index: clamped,
-                    bind: {
-                        x: Number(bindX.toFixed(3)),
-                        y: Number(bindY.toFixed(3)),
-                        z: Number(bindZ.toFixed(3))
-                    },
-                    skinned: {
-                        x: Number(posAttr.getX(clamped).toFixed(3)),
-                        y: Number(posAttr.getY(clamped).toFixed(3)),
-                        z: Number(posAttr.getZ(clamped).toFixed(3))
-                    }
-                });
-            });
-
-            console.log(JSON.stringify({ tag: 'VertexLog', label, samples }));
-        }
-
         /**
          * Apply CPU skinning - transforms vertices using bone matrices on CPU
          * Uses a hybrid approach: bind pose vertices + bone-local weight positions
          */
         // Toggle in console: window.DEBUG_SKINNING = true;
-        window.DEBUG_SKINNING = window.DEBUG_SKINNING || true;
+        window.DEBUG_SKINNING = window.DEBUG_SKINNING || false;
 
         function applyCPUSkinning() {
             if (!cpuSkinningData || !skeleton) return;
@@ -2213,20 +2170,12 @@
                 return;
             }
 
-            // Log vertex positions before the animation is applied
-            logVertexSamples(`Before ${animationName}`);
-
             pose.startAnim(seq);
             pose.animTime = 0;
             pose.update(0); // Force first frame application immediately
             if (cpuSkinningData) {
                 applyCPUSkinning();
             }
-
-            // Log vertex positions right after first frame is applied
-            logVertexSamples(`After ${animationName} frame0`);
-
-            console.log(`▶️ Playing animation: ${animationName}`);
 
             // Update UI
             document.querySelectorAll('.animation-item').forEach(item => {
