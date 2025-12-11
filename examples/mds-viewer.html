@@ -267,7 +267,8 @@
         let scene, camera, renderer;
         let modelMesh = null;
         let characterMesh = null; // The CPU-skinned mesh
-        let cpuSkinningData = null; // Data needed for CPU skinning
+        let cpuSkinningData = null; // Data needed for CPU skinning (deprecated - use mesh.userData.cpuSkinningData)
+        let skinnedMeshes = []; // Array of all meshes that need CPU skinning
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
         let pose = null; // Custom Pose class instance
@@ -714,10 +715,20 @@
         // Toggle in console: window.DEBUG_SKINNING = true;
         window.DEBUG_SKINNING = window.DEBUG_SKINNING || false;
 
-        function applyCPUSkinning() {
-            if (!cpuSkinningData || !skeleton) return;
+        function applyCPUSkinning(skinningData = null) {
+            // If no specific skinning data provided, apply to all tracked meshes
+            if (!skinningData) {
+                for (const mesh of skinnedMeshes) {
+                    if (mesh.userData.cpuSkinningData) {
+                        applyCPUSkinning(mesh.userData.cpuSkinningData);
+                    }
+                }
+                return;
+            }
             
-            const { geometry, vertexWeights, basePositions, baseNormals } = cpuSkinningData;
+            if (!skinningData || !skeleton) return;
+            
+            const { geometry, vertexWeights, basePositions, baseNormals } = skinningData;
             const posAttribute = geometry.getAttribute('position');
             const normalAttribute = geometry.getAttribute('normal');
             
@@ -986,8 +997,8 @@
                 // Update pose animation and apply CPU skinning
                 if (pose) {
                     const updated = pose.update(deltaTime);
-                    if (updated && cpuSkinningData) {
-                        applyCPUSkinning();
+                    if (updated) {
+                        applyCPUSkinning(); // Apply to all skinned meshes
                     }
                 }
                 if (skeletonHelper && typeof skeletonHelper.update === 'function') {
@@ -1441,6 +1452,10 @@
                         modelMesh.material.dispose();
                     }
                 }
+                
+                // Clear skinned meshes array
+                skinnedMeshes = [];
+                cpuSkinningData = null; // Clear global reference for backward compatibility
                 if (skeletonHelper) {
                     scene.remove(skeletonHelper);
                     if (skeletonHelper.material) skeletonHelper.material.dispose();
@@ -1587,7 +1602,7 @@
                         }
 
                         // Use CPU skinning with raw SoftSkinMesh data (Gothic's approach!)
-                        const { geometry, material, hasSkinning } = await buildCPUSkinnedMeshGeometry(softSkinMesh, skeleton);
+                        const { geometry, material, hasSkinning, skinningData } = await buildCPUSkinnedMeshGeometry(softSkinMesh, skeleton);
 
                         // No geometry offset needed - we're using CPU skinning just like Gothic!
 
@@ -1598,6 +1613,23 @@
 
                             // Disable frustum culling for animated characters
                             meshObj.frustumCulled = false;
+
+                            // Store CPU skinning data on the mesh
+                            if (skinningData) {
+                                meshObj.userData.cpuSkinningData = skinningData;
+                                skinnedMeshes.push(meshObj);
+                                console.log(`   ✅ Stored CPU skinning data for soft-skin mesh ${i}`);
+                                
+                                // Apply initial skinning to show bind pose correctly
+                                setTimeout(() => {
+                                    if (skeleton && skeleton.bones && skeleton.threeSkeleton) {
+                                        for (const rootIdx of skeleton.rootNodes) {
+                                            skeleton.bones[rootIdx].updateMatrixWorld(true);
+                                        }
+                                        applyCPUSkinning(skinningData);
+                                    }
+                                }, 100);
+                            }
 
                             // Add root bones to the scene (for skeleton helper visualization)
                             for (const rootIdx of skeleton.rootNodes) {
@@ -1685,8 +1717,25 @@
                             continue;
                         }
 
-                        const { geometry, material } = await buildSkinnedMeshGeometry(processed, skeleton);
+                        const { geometry, material, hasSkinning: attachmentHasSkinning, skinningData: attachmentSkinningData } = await buildSkinnedMeshGeometry(processed, skeleton);
                         const attachmentMesh = new THREE.Mesh(geometry, material);
+
+                        // Store CPU skinning data on attachment mesh if it has skinning
+                        if (attachmentHasSkinning && skeleton && attachmentSkinningData) {
+                            attachmentMesh.userData.cpuSkinningData = attachmentSkinningData;
+                            skinnedMeshes.push(attachmentMesh);
+                            console.log(`   ✅ Stored CPU skinning data for attachment ${attachmentName}`);
+                            
+                            // Apply initial skinning to show bind pose correctly
+                            setTimeout(() => {
+                                if (skeleton && skeleton.bones && skeleton.threeSkeleton) {
+                                    for (const rootIdx of skeleton.rootNodes) {
+                                        skeleton.bones[rootIdx].updateMatrixWorld(true);
+                                    }
+                                    applyCPUSkinning(attachmentSkinningData);
+                                }
+                            }, 100);
+                        }
 
                         if (hierarchyNodeIndex >= 0) {
                             const accumulatedMatrix = getAccumulatedTransform(hierarchyNodeIndex);
@@ -1906,8 +1955,8 @@
                 side: THREE.DoubleSide
             });
             
-            // Store CPU skinning data globally
-            cpuSkinningData = {
+            // Create CPU skinning data object (return it, don't store globally)
+            const skinningData = {
                 geometry: geometry,
                 vertexWeights: vertexWeights,
                 basePositions: new Float32Array(positions),
@@ -1925,7 +1974,7 @@
                 console.log(`   Sample weight 0:`, vertexWeights[0][0]);
             }
             
-            return { geometry, material, hasSkinning: true };
+            return { geometry, material, hasSkinning: true, skinningData };
         }
 
         async function buildSkinnedMeshGeometry(processed, skeleton) {
@@ -2077,9 +2126,10 @@
                 }
             }
 
-            // Store CPU skinning data globally
+            // Create CPU skinning data object (return it, don't store globally)
+            let skinningData = null;
             if (hasSkinning && skeleton) {
-                cpuSkinningData = {
+                skinningData = {
                     geometry: geometry,
                     vertexWeights: vertexWeights,
                     basePositions: basePositions,
@@ -2088,21 +2138,9 @@
                 console.log(`✅ Prepared CPU skinning data: ${vertexWeights.length} vertices, ${skeleton.bones.length} bones`);
                 console.log(`   First vertex weights:`, vertexWeights[0]);
                 console.log(`   First vertex base pos:`, basePositions[0], basePositions[1], basePositions[2]);
-                
-                // Apply initial skinning to show bind pose correctly
-                // (bones are in bind pose initially, so this should give us the correct initial mesh)
-                setTimeout(() => {
-                    if (skeleton && skeleton.bones && skeleton.threeSkeleton) {
-                        for (const rootIdx of skeleton.rootNodes) {
-                            skeleton.bones[rootIdx].updateMatrixWorld(true);
-                        }
-                        applyCPUSkinning();
-                        console.log('✅ Applied initial CPU skinning (bind pose)');
-                    }
-                }, 100);
             }
 
-            return { geometry, material, hasSkinning };
+            return { geometry, material, hasSkinning, skinningData };
         }
 
 
@@ -2173,9 +2211,7 @@
             pose.startAnim(seq);
             pose.animTime = 0;
             pose.update(0); // Force first frame application immediately
-            if (cpuSkinningData) {
-                applyCPUSkinning();
-            }
+            applyCPUSkinning(); // Apply to all skinned meshes
 
             // Update UI
             document.querySelectorAll('.animation-item').forEach(item => {
