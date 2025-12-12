@@ -61,7 +61,7 @@ declare module '@kolarz3/zenkit' {
     hasSkyController: boolean;
 
     // Get VOBs collection
-    getVobs(): VobData[];
+    getVobs(): VobCollection;
 
     // Waypoint access
     getWaypointCount(): number;
@@ -81,7 +81,7 @@ declare module '@kolarz3/zenkit' {
     type: number;
     position: Vector3;
     rotation: Matrix3x3Data;
-    visual: VisualData;
+    visual: Visual;
     showVisual: boolean;
     cdDynamic: boolean;
     children: VobData[];
@@ -190,7 +190,7 @@ declare module '@kolarz3/zenkit' {
     normals: Vector3[];
     textureCoords: Vector2[];
     lightValues: number[];
-    materials: MaterialData[];
+    materials: Material[];
     boundingBoxMin: Vector3;
     boundingBoxMax: Vector3;
     orientedBoundingBox: OrientedBoundingBoxData;
@@ -257,10 +257,23 @@ declare module '@kolarz3/zenkit' {
   export interface TypedArrayLike {
     // Get size/length
     size(): number;
-    
+
     // Get value at index
     get(index: number): number | Material | string;
   }
+
+  export interface VobCollection {
+    size(): number;
+    get(index: number): Vob;
+  }
+
+  export interface VertexFeature {
+    textureCoords: Vector2;
+    normal: Vector3;
+    lightValue: number;
+  }
+
+  export interface StringResult extends Result<string> {}
 
   export interface Material {
     // Texture name/path
