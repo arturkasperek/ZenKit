@@ -253,7 +253,6 @@
         let ZenKit = null;
         let scene, camera, renderer;
         let modelMesh = null;
-        let characterMesh = null; // The CPU-skinned mesh
         let skinnedMeshes = []; // Array of all meshes that need CPU skinning
         let skeleton = null; // Custom Skeleton class instance
         let animation = null; // Custom Animation class instance
@@ -580,17 +579,17 @@
          * Apply CPU skinning - transforms vertices using bone matrices on CPU
          * Uses a hybrid approach: bind pose vertices + bone-local weight positions
          */
-        function applyCPUSkinning(skinningData = null) {
+        function applyCPUSkinning(skinningData = null, skinnedMeshes = null, skeleton = null) {
             // If no specific skinning data provided, apply to all tracked meshes
             if (!skinningData) {
                 for (const mesh of skinnedMeshes) {
                     if (mesh.userData.cpuSkinningData) {
-                        applyCPUSkinning(mesh.userData.cpuSkinningData);
+                        applyCPUSkinning(mesh.userData.cpuSkinningData, skinnedMeshes, skeleton);
                     }
                 }
                 return;
             }
-            
+
             if (!skinningData || !skeleton) return;
             
             const { geometry, vertexWeights, basePositions, baseNormals } = skinningData;
@@ -803,7 +802,7 @@
                 if (poseEvaluator && skeleton && isAnimPlaying) {
                     const updated = updatePoseFromEvaluator(deltaTime);
                     if (updated) {
-                        applyCPUSkinning();
+                        applyCPUSkinning(null, skinnedMeshes, skeleton);
                     }
                 }
                 if (skeletonHelper && typeof skeletonHelper.update === 'function') {
@@ -839,7 +838,7 @@
             autoItem.addEventListener('click', async () => {
                 activeHeadName = null;
                 console.log('🔄 Head set to auto-detect');
-                await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+                await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY, scene, camera, renderer, ZenKit, headMeshesAvailable, MALE_HEADS, materialCache, textureCache);
             });
             headsList.appendChild(autoItem);
 
@@ -856,7 +855,7 @@
                 item.addEventListener('click', async () => {
                     activeHeadName = headName;
                     console.log(`🎭 Selected head: ${headName}`);
-                    await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+                    await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY, scene, camera, renderer, ZenKit, headMeshesAvailable, MALE_HEADS, materialCache, textureCache);
                 });
                 
                 headsList.appendChild(item);
@@ -982,7 +981,7 @@
                 console.log(`▶️ [${i + 1}/${animationSequence.length}] Playing: ${item.name}`);
                 
                 // Load the animation and play it via PoseEvaluator
-                const seq = await loadAnimation(item.name, item.mdsAnim, currentMdsBaseName.toUpperCase());
+                const seq = await loadAnimation(item.name, item.mdsAnim, currentMdsBaseName.toUpperCase(), currentMdsBaseName, animationCache, ZenKit, animation);
                 if (seq && seq._man && poseEvaluator) {
                     isAnimLooping = false;
                     currentAnimTimeMs = 0;
@@ -1033,7 +1032,7 @@
                 updateSequenceUI();
 
                 // Load base MDS and optional overlay
-                await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+                await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY, scene, camera, renderer, ZenKit, headMeshesAvailable, MALE_HEADS, materialCache, textureCache);
 
             } catch (error) {
                 updateStatus(`❌ Failed to initialize ZenKit: ${error.message}`, 'error');
@@ -1041,7 +1040,7 @@
             }
         }
 
-        async function loadMdsFile(mdsFileName = DEFAULT_MDS, overlayFileName = null) {
+        async function loadMdsFile(mdsFileName = DEFAULT_MDS, overlayFileName = null, scene, camera, renderer, ZenKit, headMeshesAvailable, MALE_HEADS, materialCache, textureCache) {
             try {
                 updateStatus('📖 Loading MDS file...', 'loading');
                 // Reset sequence state on new load
@@ -1120,7 +1119,7 @@
                 setDefaultRunSequence(mds, overlayAnimations);
 
                 // Load and render the skeleton mesh (pass MDS filename for MDH lookup)
-                await loadAndRenderSkeleton(mds, mdsFileName);
+                await loadAndRenderSkeleton(mds, mdsFileName, scene, camera, renderer, ZenKit, headMeshesAvailable, activeHeadName, MALE_HEADS, materialCache, textureCache);
 
             } catch (error) {
                 updateStatus(`❌ Failed to load MDS file: ${error.message}`, 'error');
@@ -1128,7 +1127,7 @@
             }
         }
 
-        async function loadAndRenderSkeleton(mds, mdsFileName = DEFAULT_MDS) {
+        async function loadAndRenderSkeleton(mds, mdsFileName = DEFAULT_MDS, scene, camera, renderer, ZenKit, headMeshesAvailable, activeHeadName, MALE_HEADS, materialCache, textureCache) {
             try {
                 const mdsSkeletonName = mds.getSkeletonName();
                 const mdsFileOnly = mdsFileName.split('/').pop() || mdsFileName;
@@ -1212,7 +1211,7 @@
                 updateStatus('🎨 Rendering model...', 'loading');
 
                 // Render the model
-                await renderModel(model);
+                await renderModel(model, scene, camera, renderer, ZenKit, headMeshesAvailable, activeHeadName, MALE_HEADS, materialCache, textureCache);
 
                 updateStatus('✅ Model rendered successfully!', 'success');
 
@@ -1222,7 +1221,7 @@
             }
         }
 
-        async function loadModelCached(modelPath) {
+        async function loadModelCached(modelPath, modelCache, ZenKit) {
             // Check cache first
             if (modelCache.has(modelPath)) {
                 return modelCache.get(modelPath);
@@ -1262,7 +1261,7 @@
             }
         }
 
-        async function renderModel(model) {
+        async function renderModel(model, scene, camera, renderer, ZenKit, headMeshesAvailable, activeHeadName, MALE_HEADS, materialCache, textureCache) {
             try {
                 // Remove existing mesh
                 if (modelMesh) {
@@ -1276,7 +1275,7 @@
                 }
                 
                 // Clear skinned meshes array
-                skinnedMeshes = [];
+                skinnedMeshes.length = 0;
                 if (skeletonHelper) {
                     scene.remove(skeletonHelper);
                     if (skeletonHelper.material) skeletonHelper.material.dispose();
@@ -1370,7 +1369,7 @@
                                         for (const rootIdx of skeleton.rootNodes) {
                                             skeleton.bones[rootIdx].updateMatrixWorld(true);
                                         }
-                                        applyCPUSkinning(skinningData);
+                                        applyCPUSkinning(skinningData, skinnedMeshes, skeleton);
                                     }
                                 }, 100);
                             }
@@ -1382,7 +1381,6 @@
                                 }
                             }
 
-                            characterMesh = meshObj; // Store reference
                             console.log(`   ✅ Created CPU-skinned mesh for soft-skin mesh ${i} (Gothic engine approach)`);
                         } else {
                             meshObj = new THREE.Mesh(geometry, material);
@@ -1400,7 +1398,7 @@
 
                     // Try to load head mesh if head bone exists
                     if (headNodeIndex >= 0) {
-                        await tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex); // Pass modelGroup
+                        await tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex, headMeshesAvailable, activeHeadName, MALE_HEADS, ZenKit, skeleton); // Pass modelGroup
                     }
 
                     if (modelGroup.children.length === 0) {
@@ -1476,7 +1474,7 @@
                                     for (const rootIdx of skeleton.rootNodes) {
                                         skeleton.bones[rootIdx].updateMatrixWorld(true);
                                     }
-                                    applyCPUSkinning(attachmentSkinningData);
+                                    applyCPUSkinning(attachmentSkinningData, skinnedMeshes, skeleton);
                                 }
                             }, 100);
                         }
@@ -1677,7 +1675,7 @@
                 // Load texture if available
                 if (textureName && textureName.length) {
                     const url = tgaNameToCompiledUrl(textureName);
-                    const tex = await loadTextureCached(url);
+                    const tex = await loadTextureCached(url, textureCache, ZenKit, renderer);
                     if (tex) {
                         phongMaterial.map = tex;
                         phongMaterial.needsUpdate = true;
@@ -1820,7 +1818,7 @@
                     if (textureName && textureName.length) {
                         const url = tgaNameToCompiledUrl(textureName);
                         console.log(`📦 Loading texture for material ${mi}: ${textureName} -> ${url}`);
-                        const tex = await loadTextureCached(url);
+                        const tex = await loadTextureCached(url, textureCache, ZenKit, renderer);
                         if (tex) {
                             phongMaterial.map = tex;
                             phongMaterial.needsUpdate = true;
@@ -1843,7 +1841,7 @@
             } else {
                 // Static mesh - load texture
                 if (processed.materials.size() > 0) {
-                    material = await getMaterialCached(processed.materials.get(0));
+                    material = await getMaterialCached(processed.materials.get(0), materialCache, textureCache, ZenKit, renderer);
                 } else {
                     material = new THREE.MeshPhongMaterial({
                         color: 0xCCCCCC,
@@ -1867,7 +1865,7 @@
         }
 
 
-        async function loadAnimation(animationName, mdsAnimation = null, manBaseName = null) {
+        async function loadAnimation(animationName, mdsAnimation = null, manBaseName = null, currentMdsBaseName = null, animationCache = null, ZenKit = null, animation = null) {
             try {
                 const baseName = (manBaseName || currentMdsBaseName).toUpperCase();
                 const cacheKey = `${baseName}:${animationName}`;
@@ -1928,7 +1926,7 @@
             }
 
             const baseName = currentMdsBaseName.toUpperCase();
-            const seq = await loadAnimation(animationName, mdsAnimation, baseName);
+            const seq = await loadAnimation(animationName, mdsAnimation, baseName, currentMdsBaseName, animationCache, ZenKit, animation);
             if (!seq || !seq._man) {
                 console.warn(`⚠️ Animation ${animationName} could not be loaded for playback`);
                 return;
@@ -1950,7 +1948,7 @@
             });
         }
 
-        async function getMaterialCached(materialData) {
+        async function getMaterialCached(materialData, materialCache, textureCache, ZenKit, renderer) {
             const textureName = materialData.texture || '';
 
             if (materialCache.has(textureName)) {
@@ -1966,7 +1964,7 @@
 
             if (textureName && textureName.length) {
                 const url = tgaNameToCompiledUrl(textureName);
-                const tex = await loadTextureCached(url);
+                const tex = await loadTextureCached(url, textureCache, ZenKit, renderer);
                 if (tex) {
                     material.map = tex;
                     material.needsUpdate = true;
@@ -1977,24 +1975,24 @@
             return material;
         }
 
-        async function loadTextureCached(texturePath) {
+        async function loadTextureCached(texturePath, textureCache, ZenKit, renderer) {
             if (textureCache.has(texturePath)) {
                 return textureCache.get(texturePath);
             }
 
             try {
-                let tex = await loadCompiledTexAsDataTexture(texturePath);
-                
+                let tex = await loadCompiledTexAsDataTexture(texturePath, ZenKit, renderer);
+
                 // If texture not found, try fallback to C0 variant (most armors reference Cx that don't exist)
                 if (!tex && texturePath.includes('_C') && !texturePath.includes('_C0-C.TEX')) {
                     const fallbackPath = texturePath.replace(/_C\d+(-C\.TEX)$/, '_C0$1');
                     console.log(`   ⚠️ Texture not found, trying fallback: ${fallbackPath}`);
-                    tex = await loadCompiledTexAsDataTexture(fallbackPath);
+                    tex = await loadCompiledTexAsDataTexture(fallbackPath, ZenKit, renderer);
                     if (tex) {
                         textureCache.set(texturePath, tex); // Cache under original name too
                     }
                 }
-                
+
                 if (tex) {
                     textureCache.set(texturePath, tex);
                 }
@@ -2004,7 +2002,7 @@
             }
         }
 
-        async function loadCompiledTexAsDataTexture(url) {
+        async function loadCompiledTexAsDataTexture(url, ZenKit, renderer) {
             const res = await fetch(url);
             if (!res.ok) return null;
             const buf = await res.arrayBuffer();
@@ -2043,7 +2041,7 @@
             return `/public/game-assets/TEXTURES/_COMPILED/${base}-C.TEX`;
         }
 
-        async function tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex) {
+        async function tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex, headMeshesAvailable, activeHeadName, MALE_HEADS, ZenKit, skeleton) {
             try {
                 if (headMeshesAvailable === false) {
                     console.log('ℹ️ Head MMB assets not available; skipping head load');
@@ -2157,7 +2155,7 @@
                         activeMeshName = meshName;
                         console.log(`🎯 Selected mesh: ${meshName}`);
                         // Reload the model with selected mesh
-                        await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+                        await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY, scene, camera, renderer, ZenKit, headMeshesAvailable, MALE_HEADS, materialCache, textureCache);
                     });
                     
                     meshesList.appendChild(item);
@@ -2252,7 +2250,7 @@
                     const playBtn = animItem.querySelector('.play-btn');
                     playBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
-                        await loadAnimation(name, mdsAnim, manBase);
+                        await loadAnimation(name, mdsAnim, manBase, currentMdsBaseName, animationCache, ZenKit, animation);
                         playAnimation(name);
                     });
 
@@ -2320,7 +2318,7 @@
                     const playBtn = animItem.querySelector('.play-btn');
                     playBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
-                        await loadAnimation(name, mdsAnim, manBase);
+                        await loadAnimation(name, mdsAnim, manBase, currentMdsBaseName, animationCache, ZenKit, animation);
                         playAnimation(name);
                     });
 
@@ -2348,7 +2346,7 @@
                     flags: mds.getAnimationFlags(0),
                     next: mds.getAnimationNext(0)
                 };
-                loadAnimation(firstAnimName, mdsAnim, currentMdsBaseName.toUpperCase()).then(seq => {
+                loadAnimation(firstAnimName, mdsAnim, currentMdsBaseName.toUpperCase(), currentMdsBaseName, animationCache, ZenKit, animation).then(seq => {
                     if (seq) {
                         console.log(`Auto-loaded animation: ${firstAnimName}`);
                         // Further pose evaluation is handled via PoseEvaluator when playing explicitly.
