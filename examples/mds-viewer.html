@@ -636,38 +636,6 @@
                     if (resultNormal.lengthSq() > 0) {
                         normalAttribute.setXYZ(i, resultNormal.x, resultNormal.y, resultNormal.z);
                     }
-                } else {
-                    // Fallback: use base position with inverse bind matrix method
-                    const basePos = new THREE.Vector3(
-                        basePositions[i * 3 + 0],
-                        basePositions[i * 3 + 1],
-                        basePositions[i * 3 + 2]
-                    );
-                    const baseNorm = new THREE.Vector3(
-                        baseNormals[i * 3 + 0],
-                        baseNormals[i * 3 + 1],
-                        baseNormals[i * 3 + 2]
-                    );
-                    
-                    const resultPos = new THREE.Vector3(0, 0, 0);
-                    const resultNormal = new THREE.Vector3(0, 0, 0);
-                    
-                    for (const { boneIndex, weight } of weights) {
-                        if (boneIndex >= boneMatrices.length) continue;
-                        
-                        const skinMatrix = new THREE.Matrix4();
-                        skinMatrix.multiplyMatrices(boneMatrices[boneIndex], boneInverses[boneIndex]);
-                        
-                        const transformedPos = basePos.clone().applyMatrix4(skinMatrix);
-                        resultPos.addScaledVector(transformedPos, weight);
-                        
-                        const mat3 = new THREE.Matrix3().setFromMatrix4(skinMatrix);
-                        const transformedNormal = baseNorm.clone().applyMatrix3(mat3);
-                        resultNormal.addScaledVector(transformedNormal, weight);
-                    }
-                    
-                    posAttribute.setXYZ(i, resultPos.x, resultPos.y, resultPos.z);
-                    normalAttribute.setXYZ(i, resultNormal.x, resultNormal.y, resultNormal.z);
                 }
             }
             
