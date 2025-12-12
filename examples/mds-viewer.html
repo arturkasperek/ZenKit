@@ -1,0 +1,2365 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <!-- CPU Skinning Implementation - Build: 2024-12-10 21:17 -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenKit MDS Viewer (CPU Skinning)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .viewer-container {
+            flex: 1;
+            position: relative;
+            background: #111;
+        }
+
+        #threejs-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .info-panel {
+            width: 400px;
+            background: #2a2a2a;
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            color: #fff;
+            margin-bottom: 20px;
+        }
+
+        .status {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #4a9eff;
+        }
+
+        .info-section {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .info-section h2 {
+            margin-top: 0;
+            color: #4a9eff;
+            font-size: 1.2em;
+        }
+
+        .info-item {
+            margin: 10px 0;
+            padding: 8px;
+            background: #1a1a1a;
+            border-radius: 3px;
+        }
+
+        .info-item.clickable {
+            cursor: pointer;
+            transition: background 0.2s, border 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .info-item.clickable:hover {
+            background: rgba(74, 158, 255, 0.2);
+        }
+
+        .info-item.active {
+            background: rgba(74, 158, 255, 0.3);
+            border-left: 3px solid #4a9eff;
+            font-weight: bold;
+        }
+
+        .info-label {
+            font-weight: bold;
+            color: #aaa;
+        }
+
+        .info-value {
+            color: #fff;
+            margin-left: 10px;
+        }
+
+        .animation-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .animation-item {
+            background: #1a1a1a;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 3px;
+            border-left: 3px solid #4a9eff;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .animation-item:hover {
+            background: #252525;
+        }
+
+        .animation-item.active {
+            background: #1a3a4a;
+            border-left-color: #6ac5ff;
+        }
+
+        .animation-item h3 {
+            margin: 0 0 8px 0;
+            color: #4a9eff;
+            font-size: 1em;
+        }
+
+        .animation-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 5px;
+            font-size: 0.9em;
+        }
+
+        .error {
+            background: #4a1a1a;
+            border-left-color: #ff4a4a;
+            color: #ffaaaa;
+        }
+
+        .success {
+            background: #1a4a1a;
+            border-left-color: #4aff4a;
+            color: #aaffaa;
+        }
+
+        .controls-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 8px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-family: monospace;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        canvas:focus {
+            outline: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="viewer-container">
+            <canvas id="threejs-canvas"></canvas>
+
+            <div id="status" class="controls-info">
+                <div><strong>Loading Status:</strong></div>
+                <div>Initializing ZenKit...</div>
+            </div>
+
+            <div class="controls-info" style="top: 120px;">
+                <div><strong>Camera Controls:</strong></div>
+                <div>Mouse: Click & drag to look around</div>
+                <div>WASD / Arrows: Move</div>
+                <div>Q/Space: Up | Z/Shift: Down</div>
+                <div>Mouse wheel: Speed</div>
+            </div>
+        </div>
+
+        <div class="info-panel">
+            <h1>ZenKit MDS Viewer</h1>
+            <div id="content" style="display: none;">
+                <div class="info-section">
+                    <h2>Skeleton Information</h2>
+                    <div class="info-item">
+                        <span class="info-label">Name:</span>
+                        <span class="info-value" id="skeleton-name">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Mesh Disabled:</span>
+                        <span class="info-value" id="skeleton-mesh-disabled">-</span>
+                    </div>
+                </div>
+
+                <div class="info-section">
+                    <h2>Meshes</h2>
+                    <div id="meshes-list"></div>
+                </div>
+
+                <div class="info-section">
+                    <h2>Head/Face</h2>
+                    <div style="margin-bottom: 10px;">
+                        <button id="toggle-head-type" style="width: 100%; padding: 8px; cursor: pointer; background: #2a2a2a; color: #e0e0e0; border: 1px solid #4a9eff; border-radius: 4px;">
+                            Switch to Female Heads
+                        </button>
+                    </div>
+                    <div id="heads-list"></div>
+                </div>
+
+                <div class="info-section">
+                    <h2>Animation Sequence</h2>
+                    <div style="margin-bottom: 10px;">
+                        <button id="play-sequence" style="width: 100%; padding: 8px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-weight: bold;">
+                            ▶ Play Sequence
+                        </button>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <button id="clear-sequence" style="width: 100%; padding: 6px; cursor: pointer; background: #2a2a2a; color: #e0e0e0; border: 1px solid #666; border-radius: 4px;">
+                            🗑️ Clear Sequence
+                        </button>
+                    </div>
+                    <div id="sequence-list" style="max-height: 200px; overflow-y: auto;"></div>
+                </div>
+
+                <div class="info-section">
+                    <h2>Disabled Animations</h2>
+                    <div id="disabled-animations-list"></div>
+                </div>
+
+                <div class="info-section">
+                    <h2>Animations</h2>
+                    <div class="animation-list" id="animations-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Three.js from CDN
+        import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.min.js';
+
+        let ZenKit = null;
+        let scene, camera, renderer;
+        let modelMesh = null;
+        let characterMesh = null; // The CPU-skinned mesh
+        let skinnedMeshes = []; // Array of all meshes that need CPU skinning
+        let skeleton = null; // Custom Skeleton class instance
+        let animation = null; // Custom Animation class instance
+        let poseEvaluator = null; // PoseEvaluator from ZenKit (WASM)
+        let currentAnimTimeMs = 0; // Current animation time in ms
+        let isAnimPlaying = false;
+        let isAnimLooping = false;
+        const DEFAULT_RUN_SEQUENCE = ['t_Run_2_RunL', 's_RunL', 't_RunL_2_Run'];
+        const DEFAULT_MDS = 'HumanS.mds';
+        const DEFAULT_OVERLAY = null; // No default overlay
+        let currentMdsBaseName = 'HumanS'; // Store the MDS base name (from MDS file)
+        let currentSkeletonBaseName = ''; // Store current skeleton base for render
+        let overlayAnimations = []; // Animations from overlay MDS (with source base)
+        let overlayDisabled = []; // Disabled animations from overlay
+        let headMeshesAvailable = null; // Unknown; set false if assets missing
+        let headNodeIndex = -1; // Index of the head bone in the skeleton
+        let skeletonHelper = null; // Visualize bones
+        let activeMeshName = null; // Currently selected mesh to load (null = default from MDS)
+        let activeHeadName = null; // Currently selected head (null = auto-detect)
+        let showFemaleHeads = false; // Toggle between male/female head lists
+        let animationSequence = []; // Queue of animations to play in sequence
+        let isPlayingSequence = false; // Whether we're currently playing a sequence
+
+        // Available head models
+        const MALE_HEADS = [
+            'HUM_HEAD_BALD',
+            'HUM_HEAD_FATBALD',
+            'HUM_HEAD_FIGHTER',
+            'HUM_HEAD_PONY',
+            'HUM_HEAD_PSIONIC',
+            'HUM_HEAD_THIEF'
+        ];
+
+        const FEMALE_HEADS = [
+            'HUM_HEAD_BABE',
+            'HUM_HEAD_BABE1',
+            'HUM_HEAD_BABE2',
+            'HUM_HEAD_BABE3',
+            'HUM_HEAD_BABE4',
+            'HUM_HEAD_BABE5',
+            'HUM_HEAD_BABE6',
+            'HUM_HEAD_BABE7',
+            'HUM_HEAD_BABE8'
+        ];
+
+        // Asset caches
+        const meshCache = new Map();
+        const textureCache = new Map();
+        const materialCache = new Map();
+        const modelCache = new Map();
+        const animationCache = new Map();
+
+        // Camera control variables
+        let moveSpeed = 10;
+        let mouseSensitivity = 0.002;
+        let pitch = 0, yaw = 0;
+        let velocity = new THREE.Vector3();
+        let isMouseDown = false;
+        let lastMouseX = 0, lastMouseY = 0;
+
+        class Skeleton {
+            constructor(hierarchy) {
+                this.nodes = [];
+                this.rootNodes = [];
+                this.bones = []; // Array of THREE.Bone
+                this.rootTr = { x: 0, y: 0, z: 0 };
+                this.bindLocal = [];
+                this.bindWorld = [];
+
+                const nodeCount = hierarchy.nodes.size();
+                const rt = hierarchy.rootTranslation;
+                this.rootTr = { x: rt.x, y: rt.y, z: rt.z };
+
+                // 1. Create Bones
+                for (let i = 0; i < nodeCount; i++) {
+                    const node = hierarchy.nodes.get(i);
+                    const parentIdx = node.parentIndex;
+
+                    const bone = new THREE.Bone();
+                    bone.name = node.name;
+                    this.bones.push(bone);
+
+                    this.nodes.push({
+                        parent: parentIdx === -1 ? -1 : parentIdx,
+                        transform: node.getTransform(), // Bind pose transform
+                        name: node.name
+                    });
+                }
+
+                // 2. Build Hierarchy
+                for (let i = 0; i < this.nodes.length; i++) {
+                    const parentIdx = this.nodes[i].parent;
+                    if (parentIdx === -1) {
+                        this.rootNodes.push(i);
+                    } else {
+                        this.bones[parentIdx].add(this.bones[i]);
+                    }
+                }
+
+                // 3. Set Initial Bind Pose (Local Transforms)
+                // Bind pose matrices from ZenKit are already correct, don't convert them
+                for (let i = 0; i < this.nodes.length; i++) {
+                    const node = this.nodes[i];
+                    const bone = this.bones[i];
+
+                    const mat = this.matrix4x4DataToMatrix4(node.transform);
+
+                    // Apply root translation to root bones (once, like native engine bind)
+                    if (node.parent === -1) {
+                        mat.elements[12] += this.rootTr.x;
+                        mat.elements[13] += this.rootTr.y;
+                        mat.elements[14] += this.rootTr.z;
+                    }
+
+                    // Decompose matrix to pos/quat/scale
+                    const pos = new THREE.Vector3();
+                    const quat = new THREE.Quaternion();
+                    const scale = new THREE.Vector3();
+                    mat.decompose(pos, quat, scale);
+
+                    bone.position.copy(pos);
+                    bone.quaternion.copy(quat);
+                    bone.scale.copy(scale);
+
+                    this.bindLocal[i] = mat.clone();
+                }
+
+                // 4. Compute bind-pose world matrices
+                for (let i = 0; i < this.nodes.length; i++) {
+                    const parentIdx = this.nodes[i].parent;
+                    if (parentIdx >= 0) {
+                        this.bindWorld[i] = new THREE.Matrix4().multiplyMatrices(this.bindWorld[parentIdx], this.bindLocal[i]);
+                    } else {
+                        this.bindWorld[i] = this.bindLocal[i].clone();
+                    }
+                }
+                this.animWorld = this.bindWorld.map(m => m.clone());
+
+                // 5. Compute bind-pose inverses (still stored for compatibility)
+                for (const rootIdx of this.rootNodes) {
+                    this.bones[rootIdx].updateMatrixWorld(true);
+                }
+                const boneInverses = [];
+                for (let i = 0; i < this.bones.length; i++) {
+                    const inv = new THREE.Matrix4();
+                    inv.copy(this.bones[i].matrixWorld).invert();
+                    boneInverses.push(inv);
+                }
+
+                this.threeSkeleton = new THREE.Skeleton(this.bones, boneInverses);
+            }
+
+            matrix4x4DataToMatrix4(mat4Data) {
+                const m = new THREE.Matrix4();
+                const te = m.elements;
+                for (let i = 0; i < 16; i++) {
+                    te[i] = mat4Data.get(i);
+                }
+                return m;
+            }
+        }
+
+        class AnimationSequence {
+            constructor(manData, mdsAnimation) {
+                this.name = manData.name;
+                this.samples = [];
+                this.nodeIndex = [];
+                this.numFrames = manData.getFrameCount ? manData.getFrameCount() : 0;
+                this.fpsRate = manData.getFps ? manData.getFps() : 25.0;
+                this.animCls = 'Transition';
+                this.flags = mdsAnimation ? mdsAnimation.flags : 0;
+
+                // Copy node indices using getNodeIndex method
+                const nodeIdxCount = manData.getNodeCount ? manData.getNodeCount() : 0;
+                for (let i = 0; i < nodeIdxCount; i++) {
+                    this.nodeIndex.push(manData.getNodeIndex(i));
+                }
+
+                // Copy samples using getSample(frameIndex, nodeIndex) method
+                // Samples are stored as: frameIndex * nodeCount + nodeIndex
+                for (let frameIdx = 0; frameIdx < this.numFrames; frameIdx++) {
+                    for (let nodeIdx = 0; nodeIdx < nodeIdxCount; nodeIdx++) {
+                        const sample = manData.getSample(frameIdx, nodeIdx);
+                        if (sample && sample.position && sample.rotation) {
+                            this.samples.push({
+                                position: { x: sample.position.x, y: sample.position.y, z: sample.position.z },
+                                rotation: { x: sample.rotation.x, y: sample.rotation.y, z: sample.rotation.z, w: sample.rotation.w }
+                            });
+                        } else {
+                            // Fallback: create default sample
+                            this.samples.push({
+                                position: { x: 0, y: 0, z: 0 },
+                                rotation: { x: 0, y: 0, z: 0, w: 1 }
+                            });
+                        }
+                    }
+                }
+
+                if (mdsAnimation && mdsAnimation.next === mdsAnimation.name) {
+                    this.animCls = 'Loop';
+                }
+            }
+
+            totalTime() {
+                return (this.numFrames * 1000.0) / this.fpsRate;
+            }
+        }
+
+        class Animation {
+            constructor() {
+                this.sequences = new Map();
+            }
+
+            addSequence(name, sequence) {
+                this.sequences.set(name.toUpperCase(), sequence);
+            }
+
+            sequence(name) {
+                return this.sequences.get(name.toUpperCase());
+            }
+        }
+
+        // Pose evaluation is now handled by ZenKit PoseEvaluator (WASM).
+        function updatePoseFromEvaluator(deltaTime) {
+            if (!poseEvaluator || !skeleton) {
+                return false;
+            }
+
+            if (!poseEvaluator.hasAnimation()) {
+                return false;
+            }
+
+            const totalTime = poseEvaluator.getTotalTimeMs();
+            if (totalTime <= 0) {
+                return false;
+            }
+
+            currentAnimTimeMs += deltaTime;
+
+            if (isAnimLooping) {
+                if (currentAnimTimeMs < 0 || currentAnimTimeMs >= totalTime) {
+                    currentAnimTimeMs = currentAnimTimeMs % totalTime;
+                }
+            } else {
+                if (currentAnimTimeMs >= totalTime) {
+                    currentAnimTimeMs = totalTime;
+                    isAnimPlaying = false;
+                }
+                if (currentAnimTimeMs < 0) {
+                    currentAnimTimeMs = 0;
+                }
+            }
+
+            const samples = poseEvaluator.evaluate(currentAnimTimeMs, isAnimLooping);
+            if (!samples || !Array.isArray(samples) || samples.length === 0) {
+                return false;
+            }
+
+            const nodeCount = skeleton.nodes.length;
+            const animLocal = new Array(nodeCount);
+            const animWorld = new Array(nodeCount);
+
+            // Start from bind pose
+            for (let i = 0; i < nodeCount; i++) {
+                animLocal[i] = skeleton.bindLocal[i].clone();
+            }
+
+            // Apply samples per animated node index
+            const nodeIndexCount = poseEvaluator.getNodeIndexCount();
+            for (let i = 0; i < nodeIndexCount; i++) {
+                const nodeId = poseEvaluator.getNodeIndex(i);
+                if (nodeId < 0 || nodeId >= nodeCount) {
+                    continue;
+                }
+
+                const sample = samples[i];
+                if (!sample) continue;
+
+                const pos = new THREE.Vector3(sample.position.x, sample.position.y, sample.position.z);
+                let rot = new THREE.Quaternion(sample.rotation.x, sample.rotation.y, sample.rotation.z, sample.rotation.w);
+
+                // Gothic (LH) -> Three.js (RH): conjugate quaternion
+                rot = new THREE.Quaternion(-rot.x, -rot.y, -rot.z, rot.w);
+
+                animLocal[nodeId] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));
+            }
+
+            // Build world matrices
+            for (let i = 0; i < nodeCount; i++) {
+                const parentIdx = skeleton.nodes[i].parent;
+                if (parentIdx >= 0) {
+                    animWorld[i] = new THREE.Matrix4().multiplyMatrices(animWorld[parentIdx], animLocal[i]);
+                } else {
+                    animWorld[i] = animLocal[i].clone();
+                }
+            }
+
+            // Apply to bones for visualization
+            for (let i = 0; i < nodeCount; i++) {
+                const bone = skeleton.bones[i];
+                const pos = new THREE.Vector3();
+                const quat = new THREE.Quaternion();
+                const scl = new THREE.Vector3();
+                animLocal[i].decompose(pos, quat, scl);
+                bone.position.copy(pos);
+                bone.quaternion.copy(quat);
+                bone.scale.copy(scl);
+            }
+
+            skeleton.animWorld = animWorld;
+
+            for (const rootIdx of skeleton.rootNodes) {
+                skeleton.bones[rootIdx].updateMatrixWorld(true);
+            }
+
+            if (skeletonHelper && typeof skeletonHelper.update === 'function') {
+                skeletonHelper.update();
+            }
+
+            return true;
+        }
+
+        /**
+         * Apply CPU skinning - transforms vertices using bone matrices on CPU
+         * Uses a hybrid approach: bind pose vertices + bone-local weight positions
+         */
+        function applyCPUSkinning(skinningData = null) {
+            // If no specific skinning data provided, apply to all tracked meshes
+            if (!skinningData) {
+                for (const mesh of skinnedMeshes) {
+                    if (mesh.userData.cpuSkinningData) {
+                        applyCPUSkinning(mesh.userData.cpuSkinningData);
+                    }
+                }
+                return;
+            }
+            
+            if (!skinningData || !skeleton) return;
+            
+            const { geometry, vertexWeights, basePositions, baseNormals } = skinningData;
+            const posAttribute = geometry.getAttribute('position');
+            const normalAttribute = geometry.getAttribute('normal');
+            
+            // Get bone world matrices and inverse bind matrices
+            const boneMatrices = skeleton.animWorld || skeleton.bones.map(bone => bone.matrixWorld);
+            const boneInverses = skeleton.threeSkeleton.boneInverses;
+            
+            // Transform each vertex
+            for (let i = 0; i < vertexWeights.length; i++) {
+                const weights = vertexWeights[i];
+                if (!weights || weights.length === 0) {
+                    // No weights - keep base position
+                    posAttribute.setXYZ(i, basePositions[i * 3 + 0], basePositions[i * 3 + 1], basePositions[i * 3 + 2]);
+                    normalAttribute.setXYZ(i, baseNormals[i * 3 + 0], baseNormals[i * 3 + 1], baseNormals[i * 3 + 2]);
+                    continue;
+                }
+                
+                // If we have bone-local positions from weight entries, use Gothic's direct method
+                if (weights[0].position) {
+                    const resultPos = new THREE.Vector3(0, 0, 0);
+                    const resultNormal = new THREE.Vector3(0, 0, 0);
+                    
+                    for (const { boneIndex, weight, position, normal } of weights) {
+                        if (boneIndex >= boneMatrices.length) continue;
+                        
+                        const vertPosOS = new THREE.Vector3(position.x, position.y, position.z);
+                        const transformedPos = vertPosOS.applyMatrix4(boneMatrices[boneIndex]);
+                        resultPos.addScaledVector(transformedPos, weight);
+                        
+                        if (normal) {
+                            const vertNormalOS = new THREE.Vector3(normal.x, normal.y, normal.z);
+                            const mat3 = new THREE.Matrix3().setFromMatrix4(boneMatrices[boneIndex]);
+                            const transformedNormal = vertNormalOS.applyMatrix3(mat3);
+                            resultNormal.addScaledVector(transformedNormal, weight);
+                        }
+
+                    }
+                    
+                    posAttribute.setXYZ(i, resultPos.x, resultPos.y, resultPos.z);
+                    if (resultNormal.lengthSq() > 0) {
+                        normalAttribute.setXYZ(i, resultNormal.x, resultNormal.y, resultNormal.z);
+                    }
+                }
+            }
+            
+            // Mark attributes as needing update
+            posAttribute.needsUpdate = true;
+            normalAttribute.needsUpdate = true;
+
+        }
+
+        function updateStatus(message, type = 'loading') {
+            console.log(message);
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                const typeClass = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+                statusEl.innerHTML = `<div><strong>Loading Status:</strong></div><div class="${typeClass}">${message}</div>`;
+            }
+        }
+
+        // Initialize Three.js Scene
+        function initThreeJS() {
+            const canvas = document.getElementById('threejs-canvas');
+
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x222222);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 1.0, 100000);
+            camera.position.set(94.09, 94.09, 94.09);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({
+                canvas,
+                antialias: true,
+                logarithmicDepthBuffer: true
+            });
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(100, 100, 50);
+            scene.add(directionalLight);
+
+            // Add AxesHelper
+            const axesHelper = new THREE.AxesHelper(200);
+            scene.add(axesHelper);
+
+            // Simple orbit controls
+            setupControls();
+
+            // Handle resize
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function setupControls() {
+            const canvas = renderer.domElement;
+            const keys = {};
+
+            // Initialize camera orientation
+            const initialDirection = new THREE.Vector3(0, 0, -1);
+            initialDirection.applyQuaternion(camera.quaternion);
+            yaw = Math.atan2(initialDirection.x, initialDirection.z);
+            pitch = Math.asin(initialDirection.y);
+
+            // Mouse controls for camera rotation
+            canvas.addEventListener('mousedown', (event) => {
+                isMouseDown = true;
+                lastMouseX = event.clientX;
+                lastMouseY = event.clientY;
+                canvas.requestPointerLock();
+            });
+
+            document.addEventListener('mousemove', (event) => {
+                if (!isMouseDown || document.pointerLockElement !== canvas) return;
+
+                const deltaX = event.movementX || 0;
+                const deltaY = event.movementY || 0;
+
+                yaw -= deltaX * mouseSensitivity;
+                pitch -= deltaY * mouseSensitivity;
+                pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+
+                updateCameraOrientation();
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isMouseDown = false;
+                document.exitPointerLock();
+                console.log(`📷 Camera: pos(${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}) rot(${camera.rotation.x.toFixed(2)}, ${camera.rotation.y.toFixed(2)}, ${camera.rotation.z.toFixed(2)})`);
+            });
+
+            // Keyboard controls for movement
+            document.addEventListener('keydown', (event) => {
+                keys[event.code] = true;
+            });
+
+            document.addEventListener('keyup', (event) => {
+                keys[event.code] = false;
+                console.log(`📷 Camera: pos(${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}) rot(${camera.rotation.x.toFixed(2)}, ${camera.rotation.y.toFixed(2)}, ${camera.rotation.z.toFixed(2)})`);
+            });
+
+            // Mouse wheel for movement speed
+            canvas.addEventListener('wheel', (event) => {
+                moveSpeed += event.deltaY * 0.1;
+                moveSpeed = Math.max(1, Math.min(500, moveSpeed));
+                event.preventDefault();
+            });
+
+            function updateCameraOrientation() {
+                const quaternion = new THREE.Quaternion();
+                quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+                camera.quaternion.copy(quaternion);
+            }
+
+            function updateMovement() {
+                velocity.set(0, 0, 0);
+
+                const forward = new THREE.Vector3(0, 0, -1);
+                const right = new THREE.Vector3(1, 0, 0);
+                const up = new THREE.Vector3(0, 1, 0);
+
+                forward.applyQuaternion(camera.quaternion);
+                right.applyQuaternion(camera.quaternion);
+
+                if (keys['KeyW'] || keys['ArrowUp']) {
+                    velocity.add(forward);
+                }
+                if (keys['KeyS'] || keys['ArrowDown']) {
+                    velocity.sub(forward);
+                }
+                if (keys['KeyA'] || keys['ArrowLeft']) {
+                    velocity.sub(right);
+                }
+                if (keys['KeyD'] || keys['ArrowRight']) {
+                    velocity.add(right);
+                }
+                if (keys['KeyQ'] || keys['Space']) {
+                    velocity.add(up);
+                }
+                if (keys['KeyZ'] || keys['ShiftLeft']) {
+                    velocity.sub(up);
+                }
+
+                if (velocity.length() > 0) {
+                    velocity.normalize().multiplyScalar(moveSpeed);
+                    camera.position.add(velocity);
+                }
+            }
+
+            // Animation loop for smooth movement and pose evaluation
+            let lastTime = performance.now();
+            function animate() {
+                const now = performance.now();
+                const deltaTime = now - lastTime;
+                lastTime = now;
+
+                updateMovement();
+
+                // Update pose using PoseEvaluator and apply CPU skinning
+                if (poseEvaluator && skeleton && isAnimPlaying) {
+                    const updated = updatePoseFromEvaluator(deltaTime);
+                    if (updated) {
+                        applyCPUSkinning();
+                    }
+                }
+                if (skeletonHelper && typeof skeletonHelper.update === 'function') {
+                    skeletonHelper.update();
+                }
+
+                renderer.render(scene, camera);
+                requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
+        function onWindowResize() {
+            const canvas = document.getElementById('threejs-canvas');
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        }
+
+        function populateHeadsList() {
+            const headsList = document.getElementById('heads-list');
+            headsList.innerHTML = '';
+
+            const heads = showFemaleHeads ? FEMALE_HEADS : MALE_HEADS;
+
+            // Add "Auto" option
+            const autoItem = document.createElement('div');
+            autoItem.className = 'info-item clickable';
+            autoItem.textContent = '🔄 Auto (Default)';
+            if (!activeHeadName) {
+                autoItem.classList.add('active');
+            }
+            autoItem.addEventListener('click', async () => {
+                activeHeadName = null;
+                console.log('🔄 Head set to auto-detect');
+                await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+            });
+            headsList.appendChild(autoItem);
+
+            // Add head options
+            heads.forEach(headName => {
+                const item = document.createElement('div');
+                item.className = 'info-item clickable';
+                item.textContent = headName;
+                
+                if (activeHeadName === headName) {
+                    item.classList.add('active');
+                }
+                
+                item.addEventListener('click', async () => {
+                    activeHeadName = headName;
+                    console.log(`🎭 Selected head: ${headName}`);
+                    await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+                });
+                
+                headsList.appendChild(item);
+            });
+        }
+
+        function addToSequence(animationName, mdsAnim) {
+            animationSequence.push({ name: animationName, mdsAnim });
+            updateSequenceUI();
+            console.log(`➕ Added to sequence: ${animationName} (total: ${animationSequence.length})`);
+        }
+
+        function setDefaultRunSequence(mds, extraAnimations = []) {
+            if (!mds) return;
+
+            const descriptors = [];
+
+            for (const name of DEFAULT_RUN_SEQUENCE) {
+                let desc = null;
+
+                // Search base animations
+                const baseCount = mds.getAnimationCount ? mds.getAnimationCount() : 0;
+                for (let i = 0; i < baseCount; i++) {
+                    if (mds.getAnimationName(i) === name) {
+                        desc = {
+                            name,
+                            flags: mds.getAnimationFlags(i),
+                            next: mds.getAnimationNext(i)
+                        };
+                        break;
+                    }
+                }
+
+                // Search overlay / extra animations
+                if (!desc) {
+                    for (const extra of extraAnimations) {
+                        if (extra.name === name) {
+                            desc = {
+                                name,
+                                flags: extra.flags,
+                                next: extra.next
+                            };
+                            break;
+                        }
+                    }
+                }
+
+                if (!desc) {
+                    console.log(`ℹ️ Default run sequence missing '${name}' in current MDS/overlay; skipping auto-sequence`);
+                    return;
+                }
+
+                descriptors.push({ name, mdsAnim: desc });
+            }
+
+            animationSequence = descriptors;
+            updateSequenceUI();
+            console.log('🎬 Default sequence set: t_Run_2_RunL → s_RunL → t_RunL_2_Run');
+        }
+
+        function clearSequence() {
+            animationSequence = [];
+            isPlayingSequence = false;
+            updateSequenceUI();
+            console.log('🗑️ Sequence cleared');
+        }
+
+        function updateSequenceUI() {
+            const sequenceList = document.getElementById('sequence-list');
+            if (animationSequence.length === 0) {
+                sequenceList.innerHTML = '<div style="color: #888; font-size: 11px; padding: 8px;">No animations in sequence. Click on animations below to add them.</div>';
+                return;
+            }
+
+            sequenceList.innerHTML = '';
+            animationSequence.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'info-item';
+                div.style.display = 'flex';
+                div.style.justifyContent = 'space-between';
+                div.style.alignItems = 'center';
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = `${index + 1}. ${item.name}`;
+                nameSpan.style.flex = '1';
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.textContent = '✕';
+                removeBtn.style.cssText = 'background: #ff4444; border: none; color: white; padding: 2px 6px; cursor: pointer; border-radius: 3px; font-size: 12px;';
+                removeBtn.addEventListener('click', () => {
+                    animationSequence.splice(index, 1);
+                    updateSequenceUI();
+                    console.log(`➖ Removed from sequence: ${item.name}`);
+                });
+                
+                div.appendChild(nameSpan);
+                div.appendChild(removeBtn);
+                sequenceList.appendChild(div);
+            });
+        }
+
+        async function playSequence() {
+            if (animationSequence.length === 0) {
+                console.log('⚠️ No animations in sequence');
+                return;
+            }
+
+            if (isPlayingSequence) {
+                console.log('⚠️ Sequence already playing');
+                return;
+            }
+
+            isPlayingSequence = true;
+            console.log(`▶️ Starting sequence playback (${animationSequence.length} animations)`);
+
+            for (let i = 0; i < animationSequence.length; i++) {
+                if (!isPlayingSequence) {
+                    console.log('⏹️ Sequence playback stopped');
+                    break;
+                }
+
+                const item = animationSequence[i];
+                console.log(`▶️ [${i + 1}/${animationSequence.length}] Playing: ${item.name}`);
+                
+                // Load the animation and play it via PoseEvaluator
+                const seq = await loadAnimation(item.name, item.mdsAnim, currentMdsBaseName.toUpperCase());
+                if (seq && seq._man && poseEvaluator) {
+                    isAnimLooping = false;
+                    currentAnimTimeMs = 0;
+                    poseEvaluator.setAnimationFromWrapper(seq._man);
+                    isAnimPlaying = true;
+
+                    const duration = poseEvaluator.getTotalTimeMs();
+                    await new Promise(resolve => setTimeout(resolve, duration));
+                } else {
+                    console.warn(`⚠️ Failed to load animation: ${item.name}`);
+                }
+            }
+
+            isPlayingSequence = false;
+            console.log('✅ Sequence playback completed');
+        }
+
+        async function initZenKit() {
+            try {
+                const ZenKitModule = (await import('../build-wasm/wasm/zenkit.mjs')).default;
+                ZenKit = await ZenKitModule();
+                updateStatus(`✅ ZenKit ${ZenKit.getZenKitVersion()} initialized successfully!`, 'success');
+
+                // Initialize Three.js
+                initThreeJS();
+
+                // Setup head type toggle
+                const toggleHeadBtn = document.getElementById('toggle-head-type');
+                toggleHeadBtn.addEventListener('click', () => {
+                    showFemaleHeads = !showFemaleHeads;
+                    toggleHeadBtn.textContent = showFemaleHeads ? 'Switch to Male Heads' : 'Switch to Female Heads';
+                    populateHeadsList();
+                });
+
+                // Setup animation sequence controls
+                const playSequenceBtn = document.getElementById('play-sequence');
+                playSequenceBtn.addEventListener('click', () => {
+                    playSequence();
+                });
+
+                const clearSequenceBtn = document.getElementById('clear-sequence');
+                clearSequenceBtn.addEventListener('click', () => {
+                    clearSequence();
+                });
+
+                // Initial head list and sequence UI
+                populateHeadsList();
+                updateSequenceUI();
+
+                // Load base MDS and optional overlay
+                await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+
+            } catch (error) {
+                updateStatus(`❌ Failed to initialize ZenKit: ${error.message}`, 'error');
+                console.error('ZenKit initialization error:', error);
+            }
+        }
+
+        async function loadMdsFile(mdsFileName = DEFAULT_MDS, overlayFileName = null) {
+            try {
+                updateStatus('📖 Loading MDS file...', 'loading');
+                // Reset sequence state on new load
+                animationSequence = [];
+                isPlayingSequence = false;
+
+                // Store the base name (without path/ext) for later use with animations
+                const mdsFileOnly = mdsFileName.split('/').pop() || mdsFileName;
+                currentMdsBaseName = mdsFileOnly.replace(/\.(MDS|MSB)$/i, '');
+                overlayAnimations = [];
+                overlayDisabled = [];
+
+                // Load MDS file from public/game-assets/ANIMS/
+                const response = await fetch(`/public/game-assets/ANIMS/${mdsFileName}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch MDS file: ${response.status} ${response.statusText}`);
+                }
+
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                // Create ModelScript and load
+                const mds = ZenKit.createModelScript();
+                const loadResult = mds.loadFromArray(uint8Array);
+
+                if (!loadResult.success) {
+                    throw new Error(loadResult.errorMessage || mds.getLastError() || 'Unknown loading error');
+                }
+
+                updateStatus('✅ MDS file loaded successfully!', 'success');
+
+                // If overlay requested, load it for animations only
+                if (overlayFileName) {
+                    try {
+                        const ovFileOnly = overlayFileName.split('/').pop() || overlayFileName;
+                        const ovBaseName = ovFileOnly.replace(/\.(MDS|MSB)$/i, '').toUpperCase();
+                        const ovResp = await fetch(`/public/game-assets/ANIMS/${overlayFileName}`);
+                        if (ovResp.ok) {
+                            const ovBuf = await ovResp.arrayBuffer();
+                            const ovU8 = new Uint8Array(ovBuf);
+                            const ovMds = ZenKit.createModelScript();
+                            const ovRes = ovMds.loadFromArray(ovU8);
+                            if (ovRes.success) {
+                                const ovAnimCount = ovMds.getAnimationCount();
+                                for (let i = 0; i < ovAnimCount; i++) {
+                                    overlayAnimations.push({
+                                        name: ovMds.getAnimationName(i),
+                                        layer: ovMds.getAnimationLayer(i),
+                                        next: ovMds.getAnimationNext(i),
+                                        blendIn: ovMds.getAnimationBlendIn(i),
+                                        blendOut: ovMds.getAnimationBlendOut(i),
+                                        flags: ovMds.getAnimationFlags(i),
+                                        model: ovMds.getAnimationModel(i),
+                                        firstFrame: ovMds.getAnimationFirstFrame(i),
+                                        lastFrame: ovMds.getAnimationLastFrame(i),
+                                        fps: ovMds.getAnimationFps(i),
+                                        speed: ovMds.getAnimationSpeed(i),
+                                        sourceBase: ovBaseName
+                                    });
+                                }
+                                const ovDisabledCount = ovMds.getDisabledAnimationCount();
+                                for (let i = 0; i < ovDisabledCount; i++) {
+                                    overlayDisabled.push(ovMds.getDisabledAnimationName(i));
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`Failed to load overlay MDS ${overlayFileName}: ${e.message}`);
+                    }
+                }
+
+                // Display information (base + overlay animations)
+                displayMdsInfo(mds, overlayAnimations, overlayDisabled);
+
+                // Set a default run sequence if all required animations are present
+                setDefaultRunSequence(mds, overlayAnimations);
+
+                // Load and render the skeleton mesh (pass MDS filename for MDH lookup)
+                await loadAndRenderSkeleton(mds, mdsFileName);
+
+            } catch (error) {
+                updateStatus(`❌ Failed to load MDS file: ${error.message}`, 'error');
+                console.error('MDS loading error:', error);
+            }
+        }
+
+        async function loadAndRenderSkeleton(mds, mdsFileName = DEFAULT_MDS) {
+            try {
+                const mdsSkeletonName = mds.getSkeletonName();
+                const mdsFileOnly = mdsFileName.split('/').pop() || mdsFileName;
+
+                let skeletonBaseName;
+                
+                // If user selected a specific mesh from UI, use it
+                if (activeMeshName) {
+                    skeletonBaseName = activeMeshName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
+                    console.log(`🎯 Using user-selected mesh: ${skeletonBaseName}`);
+                } else if (mdsSkeletonName) {
+                    // Use skeleton from MDS file
+                    skeletonBaseName = mdsSkeletonName.replace(/\.(ASC|MDM|MDH|MDL)$/i, '').toUpperCase();
+                } else {
+                    // Fallback to default human body
+                    skeletonBaseName = 'HUM_BODY_NAKED0';
+                    console.log('⚠️ No skeleton defined in MDS, using default: HUM_BODY_NAKED0');
+                }
+                
+                const mdsBaseName = mdsFileOnly.replace(/\.(MDS|MSB)$/i, '').toUpperCase();
+                const skeletonName = `${skeletonBaseName}.MDM`;
+                currentSkeletonBaseName = skeletonBaseName;
+
+                updateStatus(`📦 Loading skeleton mesh: ${skeletonName}...`, 'loading');
+
+                // Load MDH + MDM directly (MDL not available in provided assets)
+                let model = null;
+                const mdhPath = `/public/game-assets/ANIMS/_COMPILED/${mdsBaseName}.MDH`;
+                const mdmPath = `/public/game-assets/ANIMS/_COMPILED/${skeletonBaseName}.MDM`;
+
+                updateStatus(`📦 Loading MDH (${mdsBaseName}) + MDM (${skeletonBaseName})...`, 'loading');
+
+                try {
+                    // Load hierarchy (.MDH)
+                    const mdhResponse = await fetch(mdhPath);
+                    if (!mdhResponse.ok) {
+                        throw new Error(`MDH not found: ${mdhPath}`);
+                    }
+
+                    const mdhArrayBuffer = await mdhResponse.arrayBuffer();
+                    const mdhUint8Array = new Uint8Array(mdhArrayBuffer);
+
+                    const hierarchyLoader = ZenKit.createModelHierarchyLoader();
+                    const mdhLoadResult = hierarchyLoader.loadFromArray(mdhUint8Array);
+
+                    if (!mdhLoadResult || !mdhLoadResult.success) {
+                        throw new Error(`Failed to load MDH: ${hierarchyLoader.getLastError()}`);
+                    }
+
+                    // Load mesh (.MDM)
+                    const mdmResponse = await fetch(mdmPath);
+                    if (!mdmResponse.ok) {
+                        throw new Error(`MDM not found: ${mdmPath}`);
+                    }
+
+                    const mdmArrayBuffer = await mdmResponse.arrayBuffer();
+                    const mdmUint8Array = new Uint8Array(mdmArrayBuffer);
+
+                    const meshLoader = ZenKit.createModelMeshLoader();
+                    const mdmLoadResult = meshLoader.loadFromArray(mdmUint8Array);
+
+                    if (!mdmLoadResult || !mdmLoadResult.success) {
+                        throw new Error(`Failed to load MDM: ${meshLoader.getLastError()}`);
+                    }
+
+                    // Combine hierarchy and mesh into a Model
+                    model = ZenKit.createModel();
+                    model.setHierarchy(hierarchyLoader.getHierarchy());
+                    model.setMesh(meshLoader.getMesh());
+
+                } catch (error) {
+                    updateStatus(`⚠️ Could not load MDH+MDM: ${error.message}`, 'loading');
+                    return;
+                }
+
+                if (!model) {
+                    updateStatus('⚠️ Could not load model mesh', 'loading');
+                    return;
+                }
+
+                updateStatus('🎨 Rendering model...', 'loading');
+
+                // Render the model
+                await renderModel(model);
+
+                updateStatus('✅ Model rendered successfully!', 'success');
+
+            } catch (error) {
+                updateStatus(`❌ Failed to load skeleton: ${error.message}`, 'error');
+                console.error('Skeleton loading error:', error);
+            }
+        }
+
+        async function loadModelCached(modelPath) {
+            // Check cache first
+            if (modelCache.has(modelPath)) {
+                return modelCache.get(modelPath);
+            }
+
+            try {
+                const response = await fetch(modelPath);
+
+                // Check if file doesn't exist
+                const contentType = response.headers.get('content-type') || '';
+                const is404 = !response.ok || contentType.includes('text/html');
+
+                if (is404) {
+                    return null;
+                }
+
+                // Load .MDL file
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                const model = ZenKit.createModel();
+                const loadResult = model.loadFromArray(uint8Array);
+
+                if (!loadResult || !loadResult.success) {
+                    return null;
+                }
+
+                if (!model.isLoaded) {
+                    return null;
+                }
+
+                // Cache and return
+                modelCache.set(modelPath, model);
+                return model;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        async function renderModel(model) {
+            try {
+                // Remove existing mesh
+                if (modelMesh) {
+                    scene.remove(modelMesh);
+                    if (modelMesh.geometry) modelMesh.geometry.dispose();
+                    if (Array.isArray(modelMesh.material)) {
+                        modelMesh.material.forEach(m => m.dispose());
+                    } else if (modelMesh.material) {
+                        modelMesh.material.dispose();
+                    }
+                }
+                
+                // Clear skinned meshes array
+                skinnedMeshes = [];
+                if (skeletonHelper) {
+                    scene.remove(skeletonHelper);
+                    if (skeletonHelper.material) skeletonHelper.material.dispose();
+                    skeletonHelper = null;
+                }
+
+                // Get hierarchy to build skeleton
+                const hierarchy = model.getHierarchy();
+
+                // Build custom Skeleton class (mimics OpenGothic)
+                skeleton = new Skeleton(hierarchy);
+
+                // Initialize PoseEvaluator (WASM)
+                poseEvaluator = new ZenKit.PoseEvaluator();
+
+                // Initialize Animation
+                if (!animation) {
+                    animation = new Animation();
+                }
+
+                // Check for attachments first
+                const attachmentNames = model.getAttachmentNames();
+                const attachmentCount = attachmentNames.size();
+
+                console.log(`📦 Model attachments: ${attachmentCount}`);
+                for (let i = 0; i < attachmentCount; i++) {
+                    console.log(`   - ${attachmentNames.get(i)}`);
+                }
+
+                if (attachmentCount === 0) {
+                    // Try soft-skin meshes
+                    const softSkinMeshes = model.getSoftSkinMeshes();
+                    const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
+
+                    console.log(`📦 Soft-skin meshes: ${softSkinCount}`);
+
+                    if (softSkinCount === 0) {
+                        updateStatus('⚠️ Model has no renderable meshes', 'loading');
+                        return;
+                    }
+
+                    // Render soft-skin meshes
+                    const modelGroup = new THREE.Group();
+
+                    // List hierarchy nodes to find head bone
+                    const nodeCount = hierarchy.nodes.size ? hierarchy.nodes.size() : hierarchy.nodes.length;
+                    console.log(`📋 Hierarchy nodes: ${nodeCount}`);
+                    headNodeIndex = -1; // Use global variable
+                    for (let j = 0; j < nodeCount; j++) {
+                        const node = hierarchy.nodes.get ? hierarchy.nodes.get(j) : hierarchy.nodes[j];
+                        const nodeName = node.name || '';
+                        if (nodeName.toUpperCase().includes('HEAD') || nodeName === 'BIP01 HEAD') {
+                            headNodeIndex = j;
+                            console.log(`   ✅ Found head bone: ${nodeName} (index ${j})`);
+                        }
+                        if (j < 10) { // Show first 10 nodes
+                            console.log(`   [${j}] ${nodeName} (parent: ${node.parentIndex})`);
+                        }
+                    }
+
+                    let renderedCount = 0;
+                    for (let i = 0; i < softSkinCount; i++) {
+                        const softSkinMesh = softSkinMeshes.get(i);
+                        if (!softSkinMesh) {
+                            console.warn(`⚠️ Soft-skin mesh ${i} is null`);
+                            continue;
+                        }
+
+                        // Use CPU skinning with raw SoftSkinMesh data (Gothic's approach!)
+                        const { geometry, material, hasSkinning, skinningData } = await buildSoftSkinGeometryCPU(softSkinMesh, skeleton);
+
+                        // No geometry offset needed - we're using CPU skinning just like Gothic!
+
+                        let meshObj;
+                        if (hasSkinning && skeleton) {
+                            // Use regular Mesh for CPU skinning (not SkinnedMesh)
+                            meshObj = new THREE.Mesh(geometry, material);
+
+                            // Disable frustum culling for animated characters
+                            meshObj.frustumCulled = false;
+
+                            // Store CPU skinning data on the mesh
+                            if (skinningData) {
+                                meshObj.userData.cpuSkinningData = skinningData;
+                                skinnedMeshes.push(meshObj);
+                                console.log(`   ✅ Stored CPU skinning data for soft-skin mesh ${i}`);
+                                
+                                // Apply initial skinning to show bind pose correctly
+                                setTimeout(() => {
+                                    if (skeleton && skeleton.bones && skeleton.threeSkeleton) {
+                                        for (const rootIdx of skeleton.rootNodes) {
+                                            skeleton.bones[rootIdx].updateMatrixWorld(true);
+                                        }
+                                        applyCPUSkinning(skinningData);
+                                    }
+                                }, 100);
+                            }
+
+                            // Add root bones to the scene (for skeleton helper visualization)
+                            for (const rootIdx of skeleton.rootNodes) {
+                                if (modelGroup.children.indexOf(skeleton.bones[rootIdx]) === -1) {
+                                    modelGroup.add(skeleton.bones[rootIdx]);
+                                }
+                            }
+
+                            characterMesh = meshObj; // Store reference
+                            console.log(`   ✅ Created CPU-skinned mesh for soft-skin mesh ${i} (Gothic engine approach)`);
+                        } else {
+                            meshObj = new THREE.Mesh(geometry, material);
+                            console.log(`   ℹ️ Created static mesh for soft-skin mesh ${i} (skinning: ${hasSkinning})`);
+                        }
+
+                        modelGroup.add(meshObj);
+                        renderedCount++;
+                    }
+
+                    // Rotate the model group to align Gothic Z-up with Three.js Y-up
+                    // Removed rotation for debugging
+
+                    console.log(`✅ Rendered ${renderedCount} soft-skin meshes`);
+
+                    // Try to load head mesh if head bone exists
+                    if (headNodeIndex >= 0) {
+                        await tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex); // Pass modelGroup
+                    }
+
+                    if (modelGroup.children.length === 0) {
+                        updateStatus('⚠️ No meshes rendered', 'loading');
+                        return;
+                    }
+
+                    modelMesh = modelGroup;
+                } else {
+                    // Render attachments
+                    const modelGroup = new THREE.Group();
+
+                    function getAccumulatedTransform(nodeIndex) {
+                        let currentIndex = nodeIndex;
+                        let accumulatedMatrix = new THREE.Matrix4();
+
+                        while (currentIndex >= 0) {
+                            const node = hierarchy.nodes.get ? hierarchy.nodes.get(currentIndex) : hierarchy.nodes[currentIndex];
+                            const nodeTransform = node.getTransform();
+                            const nodeMatrix = new THREE.Matrix4();
+
+                            const matrixData = nodeTransform.toArray();
+                            for (let i = 0; i < 16; i++) {
+                                nodeMatrix.elements[i] = matrixData[i];
+                            }
+
+                            const tempMatrix = new THREE.Matrix4();
+                            tempMatrix.multiplyMatrices(nodeMatrix, accumulatedMatrix);
+                            accumulatedMatrix = tempMatrix;
+
+                            currentIndex = node.parentIndex;
+                        }
+
+                        return accumulatedMatrix;
+                    }
+
+                    for (let i = 0; i < attachmentNames.size(); i++) {
+                        const attachmentName = attachmentNames.get(i);
+                        const attachment = model.getAttachment(attachmentName);
+                        if (!attachment) {
+                            console.warn(`⚠️ Attachment ${attachmentName} not found in model`);
+                            continue;
+                        }
+
+                        let hierarchyNodeIndex = -1;
+                        const nodeCount = hierarchy.nodes.size ? hierarchy.nodes.size() : hierarchy.nodes.length;
+                        for (let j = 0; j < nodeCount; j++) {
+                            const node = hierarchy.nodes.get ? hierarchy.nodes.get(j) : hierarchy.nodes[j];
+                            if (node && node.name === attachmentName) {
+                                hierarchyNodeIndex = j;
+                                break;
+                            }
+                        }
+
+                        const processed = model.convertAttachmentToProcessedMesh(attachment);
+                        if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
+                            console.warn(`⚠️ Attachment ${attachmentName} has no geometry`);
+                            continue;
+                        }
+
+                        const { geometry, material, hasSkinning: attachmentHasSkinning, skinningData: attachmentSkinningData } = await buildAttachmentGeometry(processed, skeleton);
+                        const attachmentMesh = new THREE.Mesh(geometry, material);
+
+                        // Store CPU skinning data on attachment mesh if it has skinning
+                        if (attachmentHasSkinning && skeleton && attachmentSkinningData) {
+                            attachmentMesh.userData.cpuSkinningData = attachmentSkinningData;
+                            skinnedMeshes.push(attachmentMesh);
+                            console.log(`   ✅ Stored CPU skinning data for attachment ${attachmentName}`);
+                            
+                            // Apply initial skinning to show bind pose correctly
+                            setTimeout(() => {
+                                if (skeleton && skeleton.bones && skeleton.threeSkeleton) {
+                                    for (const rootIdx of skeleton.rootNodes) {
+                                        skeleton.bones[rootIdx].updateMatrixWorld(true);
+                                    }
+                                    applyCPUSkinning(attachmentSkinningData);
+                                }
+                            }, 100);
+                        }
+
+                        if (hierarchyNodeIndex >= 0) {
+                            const accumulatedMatrix = getAccumulatedTransform(hierarchyNodeIndex);
+                            attachmentMesh.applyMatrix4(accumulatedMatrix);
+                            console.log(`   ✅ Applied transform from hierarchy node ${hierarchyNodeIndex}`);
+                        } else {
+                            console.warn(`   ⚠️ No hierarchy node found for ${attachmentName}, rendering at origin`);
+                        }
+
+                        modelGroup.add(attachmentMesh);
+                    }
+
+                    if (modelGroup.children.length === 0) {
+                        updateStatus('⚠️ No attachments rendered', 'loading');
+                        return;
+                    }
+
+                    console.log(`✅ Rendered ${modelGroup.children.length} attachments`);
+                    modelMesh = modelGroup;
+                }
+
+                // Center the model
+                const box = new THREE.Box3().setFromObject(modelMesh);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+
+                console.log(`📐 Model bounds: center=(${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}), size=(${size.x.toFixed(2)}, ${size.y.toFixed(2)}, ${size.z.toFixed(2)})`);
+
+                modelMesh.position.sub(center);
+
+                scene.add(modelMesh);
+                if (skeleton) {
+                    skeletonHelper = new THREE.SkeletonHelper(modelMesh);
+                    skeletonHelper.material.color = new THREE.Color(0x00ff00);
+                    skeletonHelper.material.linewidth = 2;
+                    
+                    // Disable frustum culling for skeleton helper (same reason as SkinnedMesh)
+                    skeletonHelper.frustumCulled = false;
+                    
+                    scene.add(skeletonHelper);
+                }
+
+                // Adjust camera to view the model
+                // User requested specific start position
+                // camera.position.set(maxDim * 1.5, maxDim * 1.5, maxDim * 1.5);
+                // camera.lookAt(0, 0, 0);
+
+                console.log(`📷 Camera positioned at: (${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)})`);
+
+                renderer.render(scene, camera);
+
+            } catch (error) {
+                updateStatus(`❌ Failed to render model: ${error.message}`, 'error');
+                console.error('Model rendering error:', error);
+            }
+        }
+
+        /**
+         * Build geometry for CPU skinning directly from SoftSkinMesh raw data
+         * Accesses vertex positions in bone-local space (like Gothic's vertPosOS)
+         */
+        // Build CPU-skinned geometry from raw soft-skin meshes (wedges/weights from MDS)
+        async function buildSoftSkinGeometryCPU(softSkinMesh, skeleton) {
+            // Access the MultiResolutionMesh inside the SoftSkinMesh
+            const mrMesh = softSkinMesh.mesh;
+            const positions_raw = mrMesh.positions; // Raw positions in bone-local space!
+            const normals_raw = mrMesh.normals;
+            const subMeshes = mrMesh.subMeshes;
+            const weights = softSkinMesh.weights; // Per-vertex weight data
+            
+            // Precompute bind-pose matrices (inverse of boneInverses)
+            const bindMatrices = skeleton.threeSkeleton.boneInverses.map(inv => {
+                const m = new THREE.Matrix4();
+                m.copy(inv).invert();
+                return m;
+            });
+
+            // Build expanded vertex arrays (non-indexed for simplicity)
+            const positions = [];
+            const normals = [];
+            const uvs = [];
+            const vertexWeights = [];
+            const materials = [];
+            
+            let currentMatIndex = 0;
+            const triGroups = []; // {start, count, matIndex}
+            let triCount = 0;
+            
+            console.log(`✅ Building CPU-skinned geometry from ${subMeshes.size()} submeshes`);
+            
+            for (let subMeshIdx = 0; subMeshIdx < subMeshes.size(); subMeshIdx++) {
+                const subMesh = subMeshes.get(subMeshIdx);
+                const groupStart = triCount;
+                
+                // Add material
+                materials.push({
+                    texture: subMesh.mat.texture || ''
+                });
+                
+                const triangles = subMesh.triangles;
+                const wedges = subMesh.wedges;
+                
+                console.log(`   Submesh ${subMeshIdx}: ${triangles.size()} triangles, ${wedges.size()} wedges`);
+                
+                // Process triangles in this submesh
+                for (let triIdx = 0; triIdx < triangles.size(); triIdx++) {
+                    const triangle = triangles.get(triIdx);
+                    
+                    // Each triangle has 3 wedges (indices into wedges array)
+                    for (let i = 0; i < 3; i++) {
+                        const wedgeIdx = triangle.getWedge(i);
+                        const wedge = wedges.get(wedgeIdx);
+                        const vertIdx = wedge.index; // Index into positions_raw/normals_raw
+                        
+                        const vertWeights = weights.get(vertIdx);
+                        const weightArray = [];
+
+                        // Compute bind-pose blended position/normal using weight-local positions and bind matrices
+                        const bindPos = new THREE.Vector3(0, 0, 0);
+                        const bindNorm = new THREE.Vector3(0, 0, 0);
+                        const baseNormalOS = normals_raw.get(vertIdx);
+
+                        for (let j = 0; j < vertWeights.size(); j++) {
+                            const w = vertWeights.get(j);
+                            if (w.weight > 0.0001) {
+                                const boneIndex = w.nodeIndex;
+                                const bindMatrix = bindMatrices[boneIndex] || new THREE.Matrix4();
+
+                                const posOS = new THREE.Vector3(w.position.x, w.position.y, w.position.z);
+                                const posBind = posOS.clone().applyMatrix4(bindMatrix);
+                                bindPos.addScaledVector(posBind, w.weight);
+
+                                const mat3 = new THREE.Matrix3().setFromMatrix4(bindMatrix);
+                                const nBind = new THREE.Vector3(baseNormalOS.x, baseNormalOS.y, baseNormalOS.z).applyMatrix3(mat3);
+                                bindNorm.addScaledVector(nBind, w.weight);
+
+                                weightArray.push({
+                                    boneIndex: boneIndex,
+                                    weight: w.weight,
+                                    position: { x: w.position.x, y: w.position.y, z: w.position.z },
+                                    normal: { x: baseNormalOS.x, y: baseNormalOS.y, z: baseNormalOS.z }
+                                });
+                            }
+                        }
+
+                        positions.push(bindPos.x, bindPos.y, bindPos.z);
+                        normals.push(bindNorm.x, bindNorm.y, bindNorm.z);
+
+                        // Get UV from wedge
+                        uvs.push(wedge.texture.x, wedge.texture.y);
+
+                        vertexWeights.push(weightArray);
+                    }
+                    
+                    triCount++;
+                }
+                
+                triGroups.push({
+                    start: groupStart * 3,
+                    count: (triCount - groupStart) * 3,
+                    matIndex: currentMatIndex
+                });
+                currentMatIndex++;
+            }
+            
+            // Create Three.js geometry
+            const geometry = new THREE.BufferGeometry();
+            const posAttr = new THREE.BufferAttribute(new Float32Array(positions), 3);
+            const normalAttr = new THREE.BufferAttribute(new Float32Array(normals), 3);
+            posAttr.setUsage(THREE.DynamicDrawUsage);
+            normalAttr.setUsage(THREE.DynamicDrawUsage);
+            
+            geometry.setAttribute('position', posAttr);
+            geometry.setAttribute('normal', normalAttr);
+            geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+            
+            // Add material groups
+            for (const group of triGroups) {
+                geometry.addGroup(group.start, group.count, group.matIndex);
+            }
+            
+            // Build materials
+            const materialArray = [];
+            for (let mi = 0; mi < materials.length; mi++) {
+                const matData = materials[mi];
+                const textureName = matData.texture || '';
+                
+                const phongMaterial = new THREE.MeshPhongMaterial({
+                    color: 0xFFFFFF,
+                    side: THREE.DoubleSide,
+                    transparent: false,
+                    alphaTest: 0.5
+                });
+                
+                // Load texture if available
+                if (textureName && textureName.length) {
+                    const url = tgaNameToCompiledUrl(textureName);
+                    const tex = await loadTextureCached(url);
+                    if (tex) {
+                        phongMaterial.map = tex;
+                        phongMaterial.needsUpdate = true;
+                    }
+                }
+                
+                materialArray.push(phongMaterial);
+            }
+            
+            const material = materialArray.length > 0 ? materialArray : new THREE.MeshPhongMaterial({
+                color: 0xCCCCCC,
+                side: THREE.DoubleSide
+            });
+            
+            // Create CPU skinning data object (return it, don't store globally)
+            const skinningData = {
+                geometry: geometry,
+                vertexWeights: vertexWeights,
+                basePositions: new Float32Array(positions),
+                baseNormals: new Float32Array(normals)
+            };
+            
+            return { geometry, material, hasSkinning: true, skinningData };
+        }
+
+        // Build geometry (and optional CPU skinning data) from processed attachment mesh
+        async function buildAttachmentGeometry(processed, skeleton) {
+            const idxCount = processed.indices.size();
+            const matCount = processed.materials.size();
+
+            // Build Three.js geometry
+            const positions = new Float32Array(idxCount * 3);
+            const normals = new Float32Array(idxCount * 3);
+            const uvs = new Float32Array(idxCount * 2);
+
+            // For CPU skinning: store base positions, normals, and weight data
+            const hasSkinning = processed.boneWeights && processed.boneWeights.size() > 0;
+            
+            // IMPORTANT: For CPU skinning, we need UNIQUE vertices, not indexed!
+            // Gothic processes each vertex independently with its bone weights
+            const numUniqueVerts = idxCount; // After index expansion
+            const basePositions = new Float32Array(numUniqueVerts * 3);
+            const baseNormals = new Float32Array(numUniqueVerts * 3);
+            const vertexWeights = []; // Array of {boneIndex, weight} arrays per UNIQUE vertex
+
+            for (let i = 0; i < idxCount; i++) {
+                const vertIdx = processed.indices.get(i);
+                const vertBase = vertIdx * 8;
+
+                // Store base positions and normals (these are in BIND POSE, not animated)
+                basePositions[i * 3 + 0] = processed.vertices.get(vertBase + 0);
+                basePositions[i * 3 + 1] = processed.vertices.get(vertBase + 1);
+                basePositions[i * 3 + 2] = processed.vertices.get(vertBase + 2);
+
+                baseNormals[i * 3 + 0] = processed.vertices.get(vertBase + 3);
+                baseNormals[i * 3 + 1] = processed.vertices.get(vertBase + 4);
+                baseNormals[i * 3 + 2] = processed.vertices.get(vertBase + 5);
+                
+                // Copy to working arrays (will be updated by CPU skinning)
+                positions[i * 3 + 0] = basePositions[i * 3 + 0];
+                positions[i * 3 + 1] = basePositions[i * 3 + 1];
+                positions[i * 3 + 2] = basePositions[i * 3 + 2];
+
+                normals[i * 3 + 0] = baseNormals[i * 3 + 0];
+                normals[i * 3 + 1] = baseNormals[i * 3 + 1];
+                normals[i * 3 + 2] = baseNormals[i * 3 + 2];
+
+                uvs[i * 2 + 0] = processed.vertices.get(vertBase + 6);
+                uvs[i * 2 + 1] = processed.vertices.get(vertBase + 7);
+
+                if (hasSkinning) {
+                    const skinBase = vertIdx * 4;
+                    const weights = [];
+                    
+                    // Collect bone weights (Gothic supports up to 4 influences)
+                    for (let j = 0; j < 4; j++) {
+                        const boneIdx = processed.boneIndices.get(skinBase + j);
+                        const weight = processed.boneWeights.get(skinBase + j);
+                        
+                        if (weight > 0.0001) { // Skip negligible weights
+                            weights.push({ boneIndex: boneIdx, weight: weight });
+                        }
+                    }
+                    
+                    vertexWeights[i] = weights;
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            // Mark buffers as dynamic since we'll update them every frame
+            const posAttr = new THREE.BufferAttribute(positions, 3);
+            const normalAttr = new THREE.BufferAttribute(normals, 3);
+            posAttr.setUsage(THREE.DynamicDrawUsage);
+            normalAttr.setUsage(THREE.DynamicDrawUsage);
+            
+            geometry.setAttribute('position', posAttr);
+            geometry.setAttribute('normal', normalAttr);
+            geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+            // NO skinning attributes for CPU skinning - we handle it manually
+
+            // Build material groups
+            const triCount = processed.materialIds.size();
+            geometry.clearGroups();
+
+            let currentMatId = processed.materialIds.get(0);
+            let groupStart = 0;
+
+            for (let t = 1; t <= triCount; t++) {
+                const matId = (t < triCount) ? processed.materialIds.get(t) : -1;
+
+                if (t === triCount || matId !== currentMatId) {
+                    const vertexStart = groupStart * 3;
+                    const vertexCount = (t - groupStart) * 3;
+                    geometry.addGroup(vertexStart, vertexCount, currentMatId);
+                    groupStart = t;
+                    currentMatId = matId;
+                }
+            }
+
+            // Build material(s) - use standard Three.js materials
+            let material;
+            if (hasSkinning && skeleton) {
+                // Create material array for each material group
+                const materialArray = [];
+                const matCount = processed.materials.size();
+
+                for (let mi = 0; mi < matCount; mi++) {
+                    const matData = processed.materials.get(mi);
+                    const textureName = matData.texture || '';
+
+                    const phongMaterial = new THREE.MeshPhongMaterial({
+                        color: 0xFFFFFF,
+                        side: THREE.DoubleSide,
+                        transparent: false,
+                        alphaTest: 0.5
+                    });
+
+                    // Load texture if available
+                    if (textureName && textureName.length) {
+                        const url = tgaNameToCompiledUrl(textureName);
+                        console.log(`📦 Loading texture for material ${mi}: ${textureName} -> ${url}`);
+                        const tex = await loadTextureCached(url);
+                        if (tex) {
+                            phongMaterial.map = tex;
+                            phongMaterial.needsUpdate = true;
+                            console.log(`✅ Loaded texture for material ${mi}: ${textureName} (${tex.width}x${tex.height})`);
+                        } else {
+                            console.warn(`⚠️ Failed to load texture: ${textureName} from ${url}`);
+                        }
+                    } else {
+                        console.log(`ℹ️ Material ${mi} has no texture name`);
+                    }
+
+                    materialArray.push(phongMaterial);
+                }
+
+                material = materialArray.length > 0 ? materialArray : new THREE.MeshPhongMaterial({
+                    color: 0xCCCCCC,
+                    side: THREE.DoubleSide
+                });
+
+            } else {
+                // Static mesh - load texture
+                if (processed.materials.size() > 0) {
+                    material = await getMaterialCached(processed.materials.get(0));
+                } else {
+                    material = new THREE.MeshPhongMaterial({
+                        color: 0xCCCCCC,
+                        side: THREE.DoubleSide
+                    });
+                }
+            }
+
+            // Create CPU skinning data object (return it, don't store globally)
+            let skinningData = null;
+            if (hasSkinning && skeleton) {
+                skinningData = {
+                    geometry: geometry,
+                    vertexWeights: vertexWeights,
+                    basePositions: basePositions,
+                    baseNormals: baseNormals
+                };
+            }
+
+            return { geometry, material, hasSkinning, skinningData };
+        }
+
+
+        async function loadAnimation(animationName, mdsAnimation = null, manBaseName = null) {
+            try {
+                const baseName = (manBaseName || currentMdsBaseName).toUpperCase();
+                const cacheKey = `${baseName}:${animationName}`;
+                if (animationCache.has(cacheKey)) {
+                    return animationCache.get(cacheKey);
+                }
+
+                const manFileName = `${baseName}-${animationName}.MAN`.toUpperCase();
+                const manPath = `/public/game-assets/ANIMS/_COMPILED/${manFileName}`;
+
+                console.log(`🎬 Loading animation: ${manPath}`);
+                const response = await fetch(manPath);
+                if (!response.ok) {
+                    console.warn(`Animation file ${manPath} not found`);
+                    return null;
+                }
+
+                const buffer = await response.arrayBuffer();
+                const data = new Uint8Array(buffer);
+
+                const man = ZenKit.createModelAnimation();
+                if (!man) {
+                    throw new Error('Failed to create ModelAnimation instance');
+                }
+                const loadResult = man.loadFromArray(data);
+
+                if (!loadResult.success) {
+                    throw new Error(loadResult.errorMessage || man.getLastError() || 'Unknown loading error');
+                }
+
+                // Verify we can access node indices via getNodeIndex method
+                const nodeCount = man.getNodeCount ? man.getNodeCount() : 0;
+                if (nodeCount === 0) {
+                    throw new Error('Animation has no nodes - invalid animation data');
+                }
+
+                const seq = new AnimationSequence(man, mdsAnimation);
+                // Attach the underlying ModelAnimation wrapper for PoseEvaluator
+                seq._man = man;
+                if (!animation) {
+                    animation = new Animation();
+                }
+                animation.addSequence(animationName, seq);
+                animationCache.set(cacheKey, seq);
+
+                console.log(`✅ Loaded animation: ${animationName} (${seq.numFrames} frames, ${seq.nodeIndex.length} bones)`);
+                return seq;
+            } catch (e) {
+                console.error(`Failed to load animation ${animationName}:`, e);
+                return null;
+            }
+        }
+
+        async function playAnimation(animationName, mdsAnimation = null) {
+            if (!poseEvaluator) {
+                console.warn('⚠️ No pose evaluator initialized');
+                return;
+            }
+
+            const baseName = currentMdsBaseName.toUpperCase();
+            const seq = await loadAnimation(animationName, mdsAnimation, baseName);
+            if (!seq || !seq._man) {
+                console.warn(`⚠️ Animation ${animationName} could not be loaded for playback`);
+                return;
+            }
+
+            // One-shot play
+            isAnimLooping = false;
+            currentAnimTimeMs = 0;
+            poseEvaluator.setAnimationFromWrapper(seq._man);
+            isAnimPlaying = true;
+
+            // Update UI
+            document.querySelectorAll('.animation-item').forEach(item => {
+                if (item.dataset.animationName === animationName) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+
+        async function getMaterialCached(materialData) {
+            const textureName = materialData.texture || '';
+
+            if (materialCache.has(textureName)) {
+                return materialCache.get(textureName);
+            }
+
+            const material = new THREE.MeshPhongMaterial({
+                color: 0xFFFFFF,
+                side: THREE.DoubleSide,
+                transparent: false,
+                alphaTest: 0.5
+            });
+
+            if (textureName && textureName.length) {
+                const url = tgaNameToCompiledUrl(textureName);
+                const tex = await loadTextureCached(url);
+                if (tex) {
+                    material.map = tex;
+                    material.needsUpdate = true;
+                }
+            }
+
+            materialCache.set(textureName, material);
+            return material;
+        }
+
+        async function loadTextureCached(texturePath) {
+            if (textureCache.has(texturePath)) {
+                return textureCache.get(texturePath);
+            }
+
+            try {
+                let tex = await loadCompiledTexAsDataTexture(texturePath);
+                
+                // If texture not found, try fallback to C0 variant (most armors reference Cx that don't exist)
+                if (!tex && texturePath.includes('_C') && !texturePath.includes('_C0-C.TEX')) {
+                    const fallbackPath = texturePath.replace(/_C\d+(-C\.TEX)$/, '_C0$1');
+                    console.log(`   ⚠️ Texture not found, trying fallback: ${fallbackPath}`);
+                    tex = await loadCompiledTexAsDataTexture(fallbackPath);
+                    if (tex) {
+                        textureCache.set(texturePath, tex); // Cache under original name too
+                    }
+                }
+                
+                if (tex) {
+                    textureCache.set(texturePath, tex);
+                }
+                return tex;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        async function loadCompiledTexAsDataTexture(url) {
+            const res = await fetch(url);
+            if (!res.ok) return null;
+            const buf = await res.arrayBuffer();
+            const arr = new Uint8Array(buf);
+            const zkTex = new ZenKit.Texture();
+            const ok = zkTex.loadFromArray(arr);
+            if (!ok || !ok.success) return null;
+            const w = zkTex.width;
+            const h = zkTex.height;
+            const rgba = zkTex.asRgba8(0);
+            if (!rgba) return null;
+            const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
+            tex.needsUpdate = true;
+            tex.flipY = false;
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.magFilter = THREE.LinearFilter;
+            tex.generateMipmaps = true;
+            return tex;
+        }
+
+        function tgaNameToCompiledUrl(name) {
+            if (!name || typeof name !== 'string') return null;
+            let base = name.replace(/\.[^.]*$/, '').toUpperCase();
+            
+            // Fix common typos in original Gothic assets
+            // NACKED -> NAKED (typo in some armor materials)
+            base = base.replace(/NACKED/g, 'NAKED');
+            
+            // Textures use the naming convention from the original assets
+            // Each mesh/head model references its texture in the material
+            
+            return `/public/game-assets/TEXTURES/_COMPILED/${base}-C.TEX`;
+        }
+
+        async function tryLoadHeadMesh(modelGroup, hierarchy, headNodeIndex) {
+            try {
+                if (headMeshesAvailable === false) {
+                    console.log('ℹ️ Head MMB assets not available; skipping head load');
+                    return;
+                }
+                // If we ever discover a missing asset, disable further attempts
+                const markUnavailable = () => { headMeshesAvailable = false; };
+
+                // Use user-selected head if available, otherwise try common defaults
+                let headMeshNames;
+                if (activeHeadName) {
+                    headMeshNames = [activeHeadName];
+                    console.log(`🎭 Loading user-selected head: ${activeHeadName}`);
+                } else {
+                    // Try first few male heads as defaults (most common)
+                    headMeshNames = MALE_HEADS.slice(0, 3);
+                    console.log('🔄 Auto-loading default head');
+                }
+
+                for (const headName of headMeshNames) {
+                    const headMmbPath = `/public/game-assets/ANIMS/_COMPILED/${headName}.MMB`;
+
+                    try {
+                        const response = await fetch(headMmbPath);
+                        if (!response.ok) {
+                            markUnavailable();
+                            continue;
+                        }
+
+                        updateStatus(`📦 Loading head mesh: ${headName}...`, 'loading');
+
+                        const arrayBuffer = await response.arrayBuffer();
+                        const uint8Array = new Uint8Array(arrayBuffer);
+
+                        const morphMesh = ZenKit.createMorphMesh();
+                        const loadResult = morphMesh.loadFromArray(uint8Array);
+
+                        if (!loadResult || !loadResult.success) {
+                            continue;
+                        }
+
+                        const processed = morphMesh.convertToProcessedMesh();
+                        if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
+                            continue;
+                        }
+
+                        const { geometry, material } = await buildAttachmentGeometry(processed, skeleton);
+                        const headMesh = new THREE.Mesh(geometry, material);
+                        
+                        // Disable frustum culling for head (attached to animated bone)
+                        headMesh.frustumCulled = false;
+
+                        // Attach head mesh directly to the head bone
+                        if (skeleton && skeleton.bones && headNodeIndex >= 0 && headNodeIndex < skeleton.bones.length) {
+                            const headBone = skeleton.bones[headNodeIndex];
+                            headBone.add(headMesh);
+                            console.log(`✅ Attached head mesh to bone: ${headBone.name}`);
+                        } else {
+                            console.warn(`⚠️ Could not find head bone to attach mesh`);
+                            modelGroup.add(headMesh); // Fallback
+                        }
+
+                        headMeshesAvailable = true;
+                        updateStatus(`✅ Head mesh loaded: ${headName}`, 'success');
+                        return; // Successfully loaded head
+                        console.log(`✅ Loaded and attached head mesh: ${headName}`);
+                        updateStatus(`✅ Head mesh loaded: ${headName}`, 'success');
+                        return; // Successfully loaded head
+                    } catch (error) {
+                        // Try next head mesh name
+                        continue;
+                    }
+                }
+
+                console.log(`⚠️ No head mesh found (tried: ${headMeshNames.join(', ')})`);
+                markUnavailable();
+            } catch (error) {
+                console.warn(`⚠️ Failed to load head mesh: ${error.message}`);
+                markUnavailable();
+            }
+        }
+
+        function displayMdsInfo(mds, extraAnimations = [], extraDisabled = []) {
+            // Show content
+            document.getElementById('content').style.display = 'block';
+
+            // Skeleton info
+            document.getElementById('skeleton-name').textContent = mds.getSkeletonName() || '(none)';
+            document.getElementById('skeleton-mesh-disabled').textContent = mds.isSkeletonMeshDisabled() ? 'Yes' : 'No';
+
+            // Meshes
+            const meshCount = mds.getMeshCount();
+            const meshesList = document.getElementById('meshes-list');
+            if (meshCount === 0) {
+                meshesList.innerHTML = '<div class="info-item">No meshes defined</div>';
+            } else {
+                meshesList.innerHTML = '';
+                for (let i = 0; i < meshCount; i++) {
+                    const meshName = mds.getMeshName(i);
+                    const item = document.createElement('div');
+                    item.className = 'info-item clickable';
+                    item.textContent = `${i + 1}. ${meshName}`;
+                    
+                    // Mark active mesh
+                    if (activeMeshName === meshName || (!activeMeshName && i === 0)) {
+                        item.classList.add('active');
+                    }
+                    
+                    // Click handler to load specific mesh
+                    item.addEventListener('click', async () => {
+                        activeMeshName = meshName;
+                        console.log(`🎯 Selected mesh: ${meshName}`);
+                        // Reload the model with selected mesh
+                        await loadMdsFile(DEFAULT_MDS, DEFAULT_OVERLAY);
+                    });
+                    
+                    meshesList.appendChild(item);
+                }
+            }
+
+            // Disabled animations
+            const disabledCount = mds.getDisabledAnimationCount() + extraDisabled.length;
+            const disabledList = document.getElementById('disabled-animations-list');
+            if (disabledCount === 0) {
+                disabledList.innerHTML = '<div class="info-item">No disabled animations</div>';
+            } else {
+                disabledList.innerHTML = '';
+                for (let i = 0; i < mds.getDisabledAnimationCount(); i++) {
+                    const animName = mds.getDisabledAnimationName(i);
+                    const item = document.createElement('div');
+                    item.className = 'info-item';
+                    item.textContent = animName;
+                    disabledList.appendChild(item);
+                }
+                for (const animName of extraDisabled) {
+                    const item = document.createElement('div');
+                    item.className = 'info-item';
+                    item.textContent = `${animName} (overlay)`;
+                    disabledList.appendChild(item);
+                }
+            }
+
+            // Animations - make them clickable
+            const baseAnimCount = mds.getAnimationCount();
+            const animCount = baseAnimCount + extraAnimations.length;
+            const animationsList = document.getElementById('animations-list');
+            if (animCount === 0) {
+                animationsList.innerHTML = '<div class="info-item">No animations defined</div>';
+            } else {
+                animationsList.innerHTML = '';
+                for (let i = 0; i < baseAnimCount; i++) {
+                    const animItem = document.createElement('div');
+                    animItem.className = 'animation-item';
+
+                    const name = mds.getAnimationName(i);
+                    const layer = mds.getAnimationLayer(i);
+                    const next = mds.getAnimationNext(i);
+                    const blendIn = mds.getAnimationBlendIn(i);
+                    const blendOut = mds.getAnimationBlendOut(i);
+                    const flags = mds.getAnimationFlags(i);
+                    const model = mds.getAnimationModel(i);
+                    const firstFrame = mds.getAnimationFirstFrame(i);
+                    const lastFrame = mds.getAnimationLastFrame(i);
+                    const fps = mds.getAnimationFps(i);
+                    const speed = mds.getAnimationSpeed(i);
+
+                    // Calculate expected MAN filename for display
+                    const manBase = currentMdsBaseName.toUpperCase();
+                    const manName = `${manBase}-${name}.MAN`.toUpperCase();
+
+                    animItem.innerHTML = `
+                        <h3>🎬 ${name}</h3>
+                        <div class="animation-details">
+                            <div><span class="info-label">Layer:</span> <span class="info-value">${layer}</span></div>
+                            <div><span class="info-label">Next:</span> <span class="info-value">${next || '(none)'}</span></div>
+                            <div><span class="info-label">Blend In:</span> <span class="info-value">${blendIn.toFixed(2)}</span></div>
+                            <div><span class="info-label">Blend Out:</span> <span class="info-value">${blendOut.toFixed(2)}</span></div>
+                            <div><span class="info-label">Flags:</span> <span class="info-value">0x${flags.toString(16)}</span></div>
+                            <div><span class="info-label">Source:</span> <span class="info-value">${model || '(none)'}</span></div>
+                            <div><span class="info-label">Compiled:</span> <span class="info-value">${manName}</span></div>
+                            <div><span class="info-label">Frames:</span> <span class="info-value">${firstFrame} - ${lastFrame}</span></div>
+                            <div><span class="info-label">FPS:</span> <span class="info-value">${fps.toFixed(2)}</span></div>
+                            <div><span class="info-label">Speed:</span> <span class="info-value">${speed.toFixed(2)}</span></div>
+                        </div>
+                        <div style="margin-top: 8px; display: flex; gap: 5px;">
+                            <button class="play-btn" style="flex: 1; padding: 6px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-size: 11px;">
+                                ▶ Play
+                            </button>
+                            <button class="add-seq-btn" style="flex: 1; padding: 6px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-size: 11px;">
+                                ➕ Add to Sequence
+                            </button>
+                        </div>
+                    `;
+
+                    // Store animation name as data attribute
+                    animItem.dataset.animationName = name;
+                    animItem.dataset.animationBase = manBase;
+
+                    const mdsAnim = {
+                        name: name,
+                        flags: flags,
+                        next: next
+                    };
+
+                    // Add click handler to play button
+                    const playBtn = animItem.querySelector('.play-btn');
+                    playBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await loadAnimation(name, mdsAnim, manBase);
+                        playAnimation(name);
+                    });
+
+                    // Add click handler to add to sequence button
+                    const addSeqBtn = animItem.querySelector('.add-seq-btn');
+                    addSeqBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        addToSequence(name, mdsAnim);
+                    });
+
+                    animationsList.appendChild(animItem);
+                }
+                // Overlay / extra animations
+                for (const extra of extraAnimations) {
+                    const animItem = document.createElement('div');
+                    animItem.className = 'animation-item';
+
+                    const name = extra.name;
+                    const layer = extra.layer;
+                    const next = extra.next;
+                    const blendIn = extra.blendIn;
+                    const blendOut = extra.blendOut;
+                    const flags = extra.flags;
+                    const model = extra.model;
+                    const firstFrame = extra.firstFrame;
+                    const lastFrame = extra.lastFrame;
+                    const fps = extra.fps;
+                    const speed = extra.speed;
+                    const manBase = extra.sourceBase || currentMdsBaseName.toUpperCase();
+                    const manName = `${manBase}-${name}.MAN`.toUpperCase();
+
+                    animItem.innerHTML = `
+                        <h3>🎬 ${name} (overlay)</h3>
+                        <div class="animation-details">
+                            <div><span class="info-label">Layer:</span> <span class="info-value">${layer}</span></div>
+                            <div><span class="info-label">Next:</span> <span class="info-value">${next || '(none)'}</span></div>
+                            <div><span class="info-label">Blend In:</span> <span class="info-value">${blendIn.toFixed(2)}</span></div>
+                            <div><span class="info-label">Blend Out:</span> <span class="info-value">${blendOut.toFixed(2)}</span></div>
+                            <div><span class="info-label">Flags:</span> <span class="info-value">0x${flags.toString(16)}</span></div>
+                            <div><span class="info-label">Source:</span> <span class="info-value">${model || '(none)'}</span></div>
+                            <div><span class="info-label">Compiled:</span> <span class="info-value">${manName}</span></div>
+                            <div><span class="info-label">Frames:</span> <span class="info-value">${firstFrame} - ${lastFrame}</span></div>
+                            <div><span class="info-label">FPS:</span> <span class="info-value">${fps.toFixed(2)}</span></div>
+                            <div><span class="info-label">Speed:</span> <span class="info-value">${speed.toFixed(2)}</span></div>
+                        </div>
+                        <div style="margin-top: 8px; display: flex; gap: 5px;">
+                            <button class="play-btn" style="flex: 1; padding: 6px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-size: 11px;">
+                                ▶ Play
+                            </button>
+                            <button class="add-seq-btn" style="flex: 1; padding: 6px; cursor: pointer; background: #2a2a2a; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 4px; font-size: 11px;">
+                                ➕ Add to Sequence
+                            </button>
+                        </div>
+                    `;
+
+                    animItem.dataset.animationName = name;
+                    animItem.dataset.animationBase = manBase;
+
+                    const mdsAnim = {
+                        name: name,
+                        flags: flags,
+                        next: next
+                    };
+
+                    const playBtn = animItem.querySelector('.play-btn');
+                    playBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await loadAnimation(name, mdsAnim, manBase);
+                        playAnimation(name);
+                    });
+
+                    const addSeqBtn = animItem.querySelector('.add-seq-btn');
+                    addSeqBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        addToSequence(name, mdsAnim);
+                    });
+
+                    animationsList.appendChild(animItem);
+                }
+            }
+
+            console.log(`✅ Displayed MDS information:`);
+            console.log(`   - Skeleton: ${mds.getSkeletonName()}`);
+            console.log(`   - Meshes: ${meshCount}`);
+            console.log(`   - Disabled animations: ${disabledCount}`);
+            console.log(`   - Animations: ${animCount}`);
+
+            // Auto-load first animation if available (async, don't await here)
+            if (animCount > 0 && poseEvaluator && animation) {
+                const firstAnimName = mds.getAnimationName(0);
+                const mdsAnim = {
+                    name: firstAnimName,
+                    flags: mds.getAnimationFlags(0),
+                    next: mds.getAnimationNext(0)
+                };
+                loadAnimation(firstAnimName, mdsAnim, currentMdsBaseName.toUpperCase()).then(seq => {
+                    if (seq) {
+                        console.log(`Auto-loaded animation: ${firstAnimName}`);
+                        // Further pose evaluation is handled via PoseEvaluator when playing explicitly.
+                    }
+                });
+            }
+        }
+
+        // Initialize on page load
+        initZenKit();
+    </script>
+</body>
+
+</html>

@@ -53,6 +53,16 @@ EMSCRIPTEN_BINDINGS(zenkit_main) {
     using namespace zenkit::wasm;
     using namespace emscripten;
 
+    // Basic types
+    value_object<zenkit::Vec2>("Vec2")
+        .field("x", &zenkit::Vec2::x)
+        .field("y", &zenkit::Vec2::y);
+    
+    value_object<zenkit::Vec3>("Vec3")
+        .field("x", &zenkit::Vec3::x)
+        .field("y", &zenkit::Vec3::y)
+        .field("z", &zenkit::Vec3::z);
+
     // Library information
     class_<LibraryInfo>("LibraryInfo")
         .property("version", &LibraryInfo::version)
@@ -189,7 +199,8 @@ EMSCRIPTEN_BINDINGS(zenkit_archive) {
         .function("getAttachmentNames", &ModelWrapper::getAttachmentNames)
         .function("getAttachment", &ModelWrapper::getAttachment, allow_raw_pointers())
         .function("convertAttachmentToProcessedMesh", &ModelWrapper::convertAttachmentToProcessedMesh, allow_raw_pointers())
-        .function("convertSoftSkinMeshToProcessedMesh", &ModelWrapper::convertSoftSkinMeshToProcessedMesh, allow_raw_pointers());
+        .function("convertSoftSkinMeshToProcessedMesh", &ModelWrapper::convertSoftSkinMeshToProcessedMesh, allow_raw_pointers())
+        .function("calculateGeometryOffset", &ModelWrapper::calculateGeometryOffset, allow_raw_pointers());
 
     // Factory function for models
     function("createModel", select_overload<std::unique_ptr<ModelWrapper>()>([]() {
@@ -306,4 +317,77 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
     function("createCutsceneLibrary", select_overload<std::unique_ptr<CutsceneLibraryWrapper>()>([]() {
         return std::make_unique<CutsceneLibraryWrapper>();
     }));
+
+    // ModelScript wrapper
+    class_<ModelScriptWrapper>("ModelScript")
+        .constructor<>()
+        .function("loadFromArray", &ModelScriptWrapper::loadFromArray)
+        .function("getLastError", &ModelScriptWrapper::getLastError)
+        .function("getSkeletonName", &ModelScriptWrapper::getSkeletonName)
+        .function("isSkeletonMeshDisabled", &ModelScriptWrapper::isSkeletonMeshDisabled)
+        .function("getMeshCount", &ModelScriptWrapper::getMeshCount)
+        .function("getMeshName", &ModelScriptWrapper::getMeshName)
+        .function("getDisabledAnimationCount", &ModelScriptWrapper::getDisabledAnimationCount)
+        .function("getDisabledAnimationName", &ModelScriptWrapper::getDisabledAnimationName)
+        .function("getAnimationCount", &ModelScriptWrapper::getAnimationCount)
+        .function("getAnimationName", &ModelScriptWrapper::getAnimationName)
+        .function("getAnimationLayer", &ModelScriptWrapper::getAnimationLayer)
+        .function("getAnimationNext", &ModelScriptWrapper::getAnimationNext)
+        .function("getAnimationBlendIn", &ModelScriptWrapper::getAnimationBlendIn)
+        .function("getAnimationBlendOut", &ModelScriptWrapper::getAnimationBlendOut)
+        .function("getAnimationFlags", &ModelScriptWrapper::getAnimationFlags)
+        .function("getAnimationModel", &ModelScriptWrapper::getAnimationModel)
+        .function("getAnimationFirstFrame", &ModelScriptWrapper::getAnimationFirstFrame)
+        .function("getAnimationLastFrame", &ModelScriptWrapper::getAnimationLastFrame)
+        .function("getAnimationFps", &ModelScriptWrapper::getAnimationFps)
+        .function("getAnimationSpeed", &ModelScriptWrapper::getAnimationSpeed);
+
+    // Factory function for ModelScript
+    function("createModelScript", select_overload<std::unique_ptr<ModelScriptWrapper>()>([]() {
+        return std::make_unique<ModelScriptWrapper>();
+    }));
+
+    // ModelAnimation wrapper
+    class_<ModelAnimationWrapper>("ModelAnimation")
+        .constructor<>()
+        .function("loadFromArray", &ModelAnimationWrapper::loadFromArray)
+        .function("getLastError", &ModelAnimationWrapper::getLastError)
+        .function("getName", &ModelAnimationWrapper::getName)
+        .function("getNext", &ModelAnimationWrapper::getNext)
+        .function("getLayer", &ModelAnimationWrapper::getLayer)
+        .function("getFrameCount", &ModelAnimationWrapper::getFrameCount)
+        .function("getNodeCount", &ModelAnimationWrapper::getNodeCount)
+        .function("getNodeIndexCount", &ModelAnimationWrapper::getNodeIndexCount)
+        .function("getFps", &ModelAnimationWrapper::getFps)
+        .function("getFpsSource", &ModelAnimationWrapper::getFpsSource)
+        .function("getSampleCount", &ModelAnimationWrapper::getSampleCount)
+        .function("getSample", &ModelAnimationWrapper::getSample)
+        .function("getNodeIndex", &ModelAnimationWrapper::getNodeIndex);
+
+    // Factory function for ModelAnimation
+    function("createModelAnimation", select_overload<std::unique_ptr<ModelAnimationWrapper>()>([]() {
+        return std::make_unique<ModelAnimationWrapper>();
+    }));
+
+    // AnimationSample (position + rotation)
+    value_object<AnimationSample>("AnimationSample")
+        .field("position", &AnimationSample::position)
+        .field("rotation", &AnimationSample::rotation);
+
+    // Register vector type for PoseEvaluator::evaluate result
+    register_vector<AnimationSample>("VectorAnimationSample");
+
+    // PoseEvaluator for animation sampling
+    class_<PoseEvaluator>("PoseEvaluator")
+        .constructor<>()
+        .function("setAnimation", select_overload<void(const zenkit::ModelAnimation&)>(&PoseEvaluator::setAnimation))
+        .function("setAnimationFromWrapper", select_overload<void(const ModelAnimationWrapper&)>(&PoseEvaluator::setAnimationFromWrapper))
+        .function("clear", &PoseEvaluator::clear)
+        .function("hasAnimation", &PoseEvaluator::hasAnimation)
+        .function("getFrameCount", &PoseEvaluator::getFrameCount)
+        .function("getNodeIndexCount", &PoseEvaluator::getNodeIndexCount)
+        .function("getNodeIndex", &PoseEvaluator::getNodeIndex)
+        .function("getFps", &PoseEvaluator::getFps)
+        .function("getTotalTimeMs", &PoseEvaluator::getTotalTimeMs)
+        .function("evaluate", &PoseEvaluator::evaluate);
 }

@@ -25,6 +25,8 @@
 #include "zenkit/DaedalusVm.hh"
 #include "zenkit/addon/daedalus.hh"
 #include "zenkit/CutsceneLibrary.hh"
+#include "zenkit/ModelScript.hh"
+#include "zenkit/ModelAnimation.hh"
 
 namespace zenkit::wasm {
 
@@ -104,6 +106,9 @@ namespace zenkit::wasm {
         std::vector<uint32_t> indices;        // triangle indices into vertices array
         std::vector<uint32_t> materialIds;    // per-triangle material ID (deduplicated)
         std::vector<MaterialData> materials;  // deduplicated material list
+        std::vector<float> boneWeights;       // 4 weights per vertex
+        std::vector<uint32_t> boneIndices;    // 4 bone indices per vertex
+        std::vector<float> bonePositions;     // 4 * vec3 (pos0..3) per vertex, OpenGothic-style
 
         ProcessedMeshData() = default;
     };
@@ -734,6 +739,13 @@ namespace zenkit::wasm {
         /// \brief Convert SoftSkinMesh to ProcessedMeshData for Three.js rendering
         ProcessedMeshData convertSoftSkinMeshToProcessedMesh(const zenkit::SoftSkinMesh* softSkinMesh) const;
 
+        /// \brief Calculate required geometry offset relative to reference model
+        /// \param softSkinMesh The soft-skin mesh to analyze
+        /// \param hierarchy The model hierarchy with bone transforms
+        /// \param referenceMesh Optional reference mesh (e.g., HUM_BODY_NAKED0) to calculate relative offset
+        /// \return Vec3 offset that should be applied to geometry
+        zenkit::Vec3 calculateGeometryOffset(const zenkit::SoftSkinMesh* softSkinMesh, const zenkit::ModelHierarchy* hierarchy, const zenkit::SoftSkinMesh* referenceMesh = nullptr) const;
+
         /// \brief Set hierarchy from a separately loaded ModelHierarchy
         void setHierarchy(const zenkit::ModelHierarchy& hierarchy) { model_.hierarchy = hierarchy; }
 
@@ -1086,6 +1098,252 @@ namespace zenkit::wasm {
     private:
         zenkit::CutsceneLibrary library_;
         mutable std::string last_error_;
+    };
+
+    /// \brief Wrapper for ModelScript to expose in WASM
+    class ModelScriptWrapper {
+    public:
+        ModelScriptWrapper() = default;
+        ~ModelScriptWrapper() = default;
+
+        ModelScriptWrapper(const ModelScriptWrapper&) = delete;
+        ModelScriptWrapper& operator=(const ModelScriptWrapper&) = delete;
+        ModelScriptWrapper(ModelScriptWrapper&&) = default;
+        ModelScriptWrapper& operator=(ModelScriptWrapper&&) = default;
+
+        /// \brief Load model script from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Get skeleton name
+        std::string getSkeletonName() const { return script_.skeleton.name; }
+
+        /// \brief Check if skeleton mesh is disabled
+        bool isSkeletonMeshDisabled() const { return script_.skeleton.disable_mesh; }
+
+        /// \brief Get mesh count
+        size_t getMeshCount() const { return script_.meshes.size(); }
+
+        /// \brief Get mesh name at index
+        std::string getMeshName(size_t index) const {
+            if (index >= script_.meshes.size()) return "";
+            return script_.meshes[index];
+        }
+
+        /// \brief Get disabled animation count
+        size_t getDisabledAnimationCount() const { return script_.disabled_animations.size(); }
+
+        /// \brief Get disabled animation name at index
+        std::string getDisabledAnimationName(size_t index) const {
+            if (index >= script_.disabled_animations.size()) return "";
+            return script_.disabled_animations[index];
+        }
+
+        /// \brief Get animation count
+        size_t getAnimationCount() const { return script_.animations.size(); }
+
+        /// \brief Get animation name at index
+        std::string getAnimationName(size_t index) const {
+            if (index >= script_.animations.size()) return "";
+            return script_.animations[index].name;
+        }
+
+        /// \brief Get animation layer at index
+        uint32_t getAnimationLayer(size_t index) const {
+            if (index >= script_.animations.size()) return 0;
+            return script_.animations[index].layer;
+        }
+
+        /// \brief Get animation next name at index
+        std::string getAnimationNext(size_t index) const {
+            if (index >= script_.animations.size()) return "";
+            return script_.animations[index].next;
+        }
+
+        /// \brief Get animation blend in at index
+        float getAnimationBlendIn(size_t index) const {
+            if (index >= script_.animations.size()) return 0.0f;
+            return script_.animations[index].blend_in;
+        }
+
+        /// \brief Get animation blend out at index
+        float getAnimationBlendOut(size_t index) const {
+            if (index >= script_.animations.size()) return 0.0f;
+            return script_.animations[index].blend_out;
+        }
+
+        /// \brief Get animation flags at index
+        uint8_t getAnimationFlags(size_t index) const {
+            if (index >= script_.animations.size()) return 0;
+            return static_cast<uint8_t>(script_.animations[index].flags);
+        }
+
+        /// \brief Get animation model at index
+        std::string getAnimationModel(size_t index) const {
+            if (index >= script_.animations.size()) return "";
+            return script_.animations[index].model;
+        }
+
+        /// \brief Get animation first frame at index
+        int32_t getAnimationFirstFrame(size_t index) const {
+            if (index >= script_.animations.size()) return 0;
+            return script_.animations[index].first_frame;
+        }
+
+        /// \brief Get animation last frame at index
+        int32_t getAnimationLastFrame(size_t index) const {
+            if (index >= script_.animations.size()) return 0;
+            return script_.animations[index].last_frame;
+        }
+
+        /// \brief Get animation FPS at index
+        float getAnimationFps(size_t index) const {
+            if (index >= script_.animations.size()) return 0.0f;
+            return script_.animations[index].fps;
+        }
+
+        /// \brief Get animation speed at index
+        float getAnimationSpeed(size_t index) const {
+            if (index >= script_.animations.size()) return 0.0f;
+            return script_.animations[index].speed;
+        }
+
+        /// \brief Get the underlying model script
+        const zenkit::ModelScript& getScript() const { return script_; }
+
+    private:
+        zenkit::ModelScript script_;
+        mutable std::string last_error_;
+    };
+
+    /// \brief Wrapper for ModelAnimation to expose in WASM
+    class ModelAnimationWrapper {
+    public:
+        ModelAnimationWrapper() = default;
+        ~ModelAnimationWrapper() = default;
+
+        ModelAnimationWrapper(const ModelAnimationWrapper&) = delete;
+        ModelAnimationWrapper& operator=(const ModelAnimationWrapper&) = delete;
+        ModelAnimationWrapper(ModelAnimationWrapper&&) = default;
+        ModelAnimationWrapper& operator=(ModelAnimationWrapper&&) = default;
+
+        /// \brief Load model animation from JavaScript Uint8Array
+        Result<bool> loadFromArray(const emscripten::val& uint8_array);
+
+        /// \brief Get last error message
+        std::string getLastError() const { return last_error_; }
+
+        /// \brief Get animation name
+        std::string getName() const { return animation_.name; }
+
+        /// \brief Get next animation name
+        std::string getNext() const { return animation_.next; }
+
+        /// \brief Get layer
+        uint32_t getLayer() const { return animation_.layer; }
+
+        /// \brief Get frame count
+        uint32_t getFrameCount() const { return animation_.frame_count; }
+
+        /// \brief Get node count
+        uint32_t getNodeCount() const { return animation_.node_count; }
+
+        /// \brief Get FPS
+        float getFps() const { return animation_.fps; }
+
+        /// \brief Get source FPS
+        float getFpsSource() const { return animation_.fps_source; }
+
+        /// \brief Get sample count
+        size_t getSampleCount() const { return animation_.samples.size(); }
+
+        /// \brief Get sample at index (returns position and rotation)
+        emscripten::val getSample(size_t frameIndex, size_t nodeIndex) const;
+
+        /// \brief Get node index for a given node in the animation
+        uint32_t getNodeIndex(size_t nodeIndex) const {
+            if (nodeIndex >= animation_.node_indices.size()) return 0;
+            return animation_.node_indices[nodeIndex];
+        }
+
+        /// \brief Get number of node indices (mapping MAN -> hierarchy)
+        uint32_t getNodeIndexCount() const { return static_cast<uint32_t>(animation_.node_indices.size()); }
+
+        /// \brief Get the underlying animation
+        const zenkit::ModelAnimation& getAnimation() const { return animation_; }
+
+    private:
+        zenkit::ModelAnimation animation_;
+        mutable std::string last_error_;
+    };
+
+    /// \brief Wrapper representing a single animated sample (position + rotation)
+    struct AnimationSample {
+        zenkit::Vec3 position;
+        zenkit::Vec4 rotation;
+    };
+
+    /// \brief Wrapper for evaluating poses from a ModelAnimation over time
+    ///
+    /// This roughly corresponds to the Pose/AnimationSequence logic that was
+    /// implemented in JavaScript in the MDS viewer.
+    class PoseEvaluator {
+    public:
+        PoseEvaluator() = default;
+        ~PoseEvaluator() = default;
+
+        PoseEvaluator(const PoseEvaluator&) = delete;
+        PoseEvaluator& operator=(const PoseEvaluator&) = delete;
+        PoseEvaluator(PoseEvaluator&&) = default;
+        PoseEvaluator& operator=(PoseEvaluator&&) = default;
+
+        /// \brief Initialize evaluator from an animation
+        ///
+        /// Copies node indices and samples into a flattened representation.
+        void setAnimation(const zenkit::ModelAnimation& animation);
+
+        /// \brief Initialize evaluator from a ModelAnimationWrapper
+        ///
+        /// Convenience overload for WASM bindings – this lets JavaScript pass
+        /// a ModelAnimation instance directly.
+        void setAnimationFromWrapper(const ModelAnimationWrapper& wrapper);
+
+        /// \brief Clear current animation data
+        void clear();
+
+        /// \brief Check if an animation is set
+        bool hasAnimation() const noexcept { return frame_count_ > 0 && node_index_count_ > 0; }
+
+        /// \brief Get total number of frames
+        uint32_t getFrameCount() const noexcept { return frame_count_; }
+
+        /// \brief Get node index count (mapping entries)
+        uint32_t getNodeIndexCount() const noexcept { return node_index_count_; }
+
+        /// \brief Get node index mapping at position
+        uint32_t getNodeIndex(uint32_t index) const;
+
+        /// \brief Get animation FPS
+        float getFps() const noexcept { return fps_; }
+
+        /// \brief Get total duration in milliseconds
+        float getTotalTimeMs() const noexcept;
+
+        /// \brief Evaluate pose at a given time (milliseconds)
+        ///
+        /// \param now_ms  Time since start in milliseconds
+        /// \param loop    If true, time is wrapped into [0, totalTime)
+        /// \return JavaScript array of AnimationSample-like objects
+        emscripten::val evaluate(float now_ms, bool loop) const;
+
+    private:
+        uint32_t frame_count_ {0};
+        uint32_t node_index_count_ {0};
+        float fps_ {25.0f};
+        std::vector<uint32_t> node_indices_;
+        std::vector<AnimationSample> samples_;
     };
 
 } // namespace zenkit::wasm

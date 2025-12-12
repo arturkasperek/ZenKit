@@ -263,15 +263,50 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .property("data", &Result<WayEdgeData>::data)
         .property("errorMessage", &Result<WayEdgeData>::error_message);
 
-    // Model mesh structures
-    value_object<zenkit::SubMesh>("SubMesh")
-        .field("mat", &zenkit::SubMesh::mat)
-        .field("triangles", &zenkit::SubMesh::triangles)
-        .field("wedges", &zenkit::SubMesh::wedges)
-        .field("colors", &zenkit::SubMesh::colors)
-        .field("trianglePlaneIndices", &zenkit::SubMesh::triangle_plane_indices)
-        .field("trianglePlanes", &zenkit::SubMesh::triangle_planes)
-        .field("wedgeMap", &zenkit::SubMesh::wedge_map);
+    // Model mesh structures - simple types first
+    // Register MaterialGroup enum
+    enum_<zenkit::MaterialGroup>("MaterialGroup")
+        .value("UNDEFINED", zenkit::MaterialGroup::UNDEFINED)
+        .value("METAL", zenkit::MaterialGroup::METAL)
+        .value("STONE", zenkit::MaterialGroup::STONE)
+        .value("WOOD", zenkit::MaterialGroup::WOOD)
+        .value("EARTH", zenkit::MaterialGroup::EARTH)
+        .value("WATER", zenkit::MaterialGroup::WATER)
+        .value("SNOW", zenkit::MaterialGroup::SNOW)
+        .value("NONE", zenkit::MaterialGroup::NONE);
+    
+    value_object<zenkit::Material>("Material")
+        .field("name", &zenkit::Material::name)
+        .field("group", &zenkit::Material::group)
+        .field("texture", &zenkit::Material::texture)
+        .field("textureScale", &zenkit::Material::texture_scale)
+        .field("smoothAngle", &zenkit::Material::smooth_angle);
+    
+    value_object<zenkit::MeshWedge>("MeshWedge")
+        .field("normal", &zenkit::MeshWedge::normal)
+        .field("texture", &zenkit::MeshWedge::texture)
+        .field("index", &zenkit::MeshWedge::index);
+    
+    // MeshTriangle as class (to work with vectors) - use methods for array access
+    class_<zenkit::MeshTriangle>("MeshTriangle")
+        .function("getWedge", +[](const zenkit::MeshTriangle& tri, int index) -> uint16_t {
+            if (index < 0 || index >= 3) return 0;
+            return tri.wedges[index];
+        });
+    
+    value_object<zenkit::MeshPlane>("MeshPlane")
+        .field("distance", &zenkit::MeshPlane::distance)
+        .field("normal", &zenkit::MeshPlane::normal);
+    
+    value_object<zenkit::MeshTriangleEdge>("MeshTriangleEdge")
+        .field("edges", &zenkit::MeshTriangleEdge::edges);
+    
+    value_object<zenkit::MeshEdge>("MeshEdge")
+        .field("edges", &zenkit::MeshEdge::edges);
+    
+    // Remove the standalone helper functions - they're now methods
+    
+    // SubMesh will be registered AFTER vector types are registered (see below)
 
     value_object<zenkit::SoftSkinWedgeNormal>("SoftSkinWedgeNormal")
         .field("normal", &zenkit::SoftSkinWedgeNormal::normal)
@@ -306,7 +341,10 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("vertices", &ProcessedMeshData::vertices)
         .field("indices", &ProcessedMeshData::indices)
         .field("materialIds", &ProcessedMeshData::materialIds)
-        .field("materials", &ProcessedMeshData::materials);
+        .field("materials", &ProcessedMeshData::materials)
+        .field("boneWeights", &ProcessedMeshData::boneWeights)
+        .field("boneIndices", &ProcessedMeshData::boneIndices)
+        .field("bonePositions", &ProcessedMeshData::bonePositions);
 
     // Register vector types
     register_vector<Vector3>("VectorVector3");
@@ -318,14 +356,34 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
     register_vector<VobData>("VectorVobData");
     register_vector<WayPointData>("VectorWayPointData");
 
-    // Model mesh vector types
-    register_vector<zenkit::SubMesh>("VectorSubMesh");
+    // Model mesh vector types (register primitive vector types first)
+    register_vector<zenkit::Vec3>("VectorVec3");
+    register_vector<zenkit::MeshWedge>("VectorMeshWedge");
+    register_vector<zenkit::MeshTriangle>("VectorMeshTriangle");
+    register_vector<zenkit::MeshPlane>("VectorMeshPlane");
+    register_vector<zenkit::MeshTriangleEdge>("VectorMeshTriangleEdge");
+    register_vector<zenkit::MeshEdge>("VectorMeshEdge");
+    // Note: VectorSubMesh registered AFTER SubMesh value_object below
     register_vector<zenkit::SoftSkinMesh>("VectorSoftSkinMesh");
     register_vector<zenkit::SoftSkinWedgeNormal>("VectorSoftSkinWedgeNormal");
     register_vector<zenkit::SoftSkinWeightEntry>("VectorSoftSkinWeightEntry");
+    register_vector<std::vector<zenkit::SoftSkinWeightEntry>>("VectorVectorSoftSkinWeightEntry");
     register_vector<zenkit::OrientedBoundingBox>("VectorOrientedBoundingBox");
-    register_vector<int32_t>("VectorInt32");
+    register_vector<std::uint16_t>("VectorUint16");
     register_vector<std::string>("VectorString");
+    
+    // NOW register SubMesh as a class (not value_object, since it's used in vectors)
+    class_<zenkit::SubMesh>("SubMesh")
+        .property("mat", &zenkit::SubMesh::mat)
+        .property("triangles", &zenkit::SubMesh::triangles)
+        .property("wedges", &zenkit::SubMesh::wedges)
+        .property("colors", &zenkit::SubMesh::colors)
+        .property("trianglePlaneIndices", &zenkit::SubMesh::triangle_plane_indices)
+        .property("trianglePlanes", &zenkit::SubMesh::triangle_planes)
+        .property("wedgeMap", &zenkit::SubMesh::wedge_map);
+    
+    // THEN register VectorSubMesh (after SubMesh itself)
+    register_vector<zenkit::SubMesh>("VectorSubMesh");
 
     // Register MultiResolutionMesh as a value type first
     value_object<zenkit::MultiResolutionMesh>("MultiResolutionMeshValue")

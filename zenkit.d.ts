@@ -2,48 +2,67 @@ declare module '@kolarz3/zenkit' {
   export interface ZenKit {
     // World operations
     createWorld(): World;
-    
+
     // Mesh operations
     createMesh(): Mesh;
-    
+
     // Model operations
     createModel(): Model;
-    
+
     // Model hierarchy loader (for loading .MDH files separately)
     createModelHierarchyLoader(): ModelHierarchyLoader;
-    
+
     // Model mesh loader (for loading .MDM files separately)
     createModelMeshLoader(): ModelMeshLoader;
-    
+
     // Morph mesh operations
     createMorphMesh(): MorphMesh;
-    
+
     // Daedalus script operations
     createDaedalusScript(): DaedalusScript;
-    
+
     // Daedalus VM operations (takes ownership of script)
     createDaedalusVm(script: DaedalusScript): DaedalusVm;
-    
+
     // Cutscene library operations
     createCutsceneLibrary(): CutsceneLibrary;
-    
+
+    // Model script operations
+    createModelScript(): ModelScript;
+
+    // Model animation operations
+    createModelAnimation(): ModelAnimation;
+
+    // Pose evaluator operations
+    createPoseEvaluator(): PoseEvaluator;
+
     // Texture constructor
     Texture: new () => Texture;
   }
 
+  // Library information functions
+  export function getZenKitVersion(): string;
+  export function getLibraryInfo(): LibraryInfo;
+
   export interface World {
     // Load world from buffer
-    loadFromArray(buffer: Uint8Array): boolean;
-    
+    loadFromArray(buffer: Uint8Array, version?: number): Result<boolean>;
+
     // Check if world is loaded
     isLoaded: boolean;
-    
+
     // Get last error message
-    getLastError(): string | null;
-    
+    getLastError(): string;
+
+    // World properties
+    npcSpawnEnabled: boolean;
+    npcSpawnFlags: number;
+    hasPlayer: boolean;
+    hasSkyController: boolean;
+
     // Get VOBs collection
-    getVobs(): VobCollection;
-    
+    getVobs(): VobData[];
+
     // Waypoint access
     getWaypointCount(): number;
     getWaypoint(index: number): WayPointResult;
@@ -51,19 +70,21 @@ declare module '@kolarz3/zenkit' {
     getAllWaypoints(): WayPointData[];
     getWaypointEdgeCount(): number;
     getWaypointEdge(index: number): WayEdgeResult;
-    
+
     // World mesh - directly exposes getProcessedMeshData() method
-    mesh: {
-      getProcessedMeshData(): ProcessedMeshData;
-    };
+    mesh: MeshData;
   }
 
-  export interface VobCollection {
-    // Get number of VOBs
-    size(): number;
-    
-    // Get VOB by index
-    get(index: number): Vob;
+  export interface VobData {
+    id: number;
+    vobName: string;
+    type: number;
+    position: Vector3;
+    rotation: Matrix3x3Data;
+    visual: VisualData;
+    showVisual: boolean;
+    cdDynamic: boolean;
+    children: VobData[];
   }
 
   export interface Vob {
@@ -130,21 +151,67 @@ declare module '@kolarz3/zenkit' {
     errorMessage?: string;
   }
 
+  export interface Vector2 {
+    x: number;
+    y: number;
+  }
+
+  export interface Vector3 {
+    x: number;
+    y: number;
+    z: number;
+  }
+
+  export interface OrientedBoundingBoxData {
+    center: Vector3;
+    axes: Vector3[];
+    half_width: Vector3;
+  }
+
   export interface Mesh {
     // Load mesh from buffer (.3DS format)
-    loadFromArray(buffer: Uint8Array): { success: boolean };
-    
+    loadFromArray(buffer: Uint8Array): Result<boolean>;
+
     // Load multi-resolution mesh from buffer (.MRM format)
-    loadMRMFromArray(buffer: Uint8Array): { success: boolean };
-    
+    loadMRMFromArray(buffer: Uint8Array): Result<boolean>;
+
     // Get mesh data
     getMeshData(): MeshData;
+
+    // Check if this is an MRM mesh
+    isMRM(): boolean;
   }
 
   export interface MeshData {
-    // Get processed mesh data for rendering
+    // Vertex data
+    vertices: Vector3[];
+    features: VertexFeature[];
+    vertexIndices: number[];
+    normals: Vector3[];
+    textureCoords: Vector2[];
+    lightValues: number[];
+    materials: MaterialData[];
+    boundingBoxMin: Vector3;
+    boundingBoxMax: Vector3;
+    orientedBoundingBox: OrientedBoundingBoxData;
+    name: string;
+    vertexCount: number;
+    featureCount: number;
+    indexCount: number;
+
+    // Performance optimization methods for direct WebGL usage
+    getVerticesTypedArray(): Uint8Array | null;
+    getNormalsTypedArray(): Float32Array | null;
+    getUVsTypedArray(): Float32Array | null;
+    getIndicesTypedArray(): Uint32Array | null;
+    getFeatureIndicesTypedArray(): Uint32Array | null;
+    getTriFeatureIndicesTypedArray(): Uint32Array | null;
+    getPolygonMaterialIndicesTypedArray(): Uint32Array | null;
+
+    // OpenGothic-style processed mesh data
     getProcessedMeshData(): ProcessedMeshData;
   }
+
 
   export interface ProcessedMeshData {
     // Vertex data (8 floats per vertex: x, y, z, nx, ny, nz, u, v)
@@ -158,6 +225,13 @@ declare module '@kolarz3/zenkit' {
     
     // Material IDs per triangle
     materialIds: IntArrayLike;
+
+    // Skinning weights (4 weights per vertex, packed)
+    boneWeights?: FloatArrayLike;
+    // Skinning indices (4 indices per vertex, packed)
+    boneIndices?: IntArrayLike;
+    // Bone-local positions (pos0..pos3) per vertex, packed 12 floats
+    bonePositions?: FloatArrayLike;
   }
 
   export interface FloatArrayLike {
@@ -256,7 +330,35 @@ declare module '@kolarz3/zenkit' {
   
   export interface SoftSkinMesh {
     // Soft-skin mesh data (contains MultiResolutionMesh internally)
-    mesh: any;
+    mesh: MultiResolutionMesh;
+    bboxes: OrientedBoundingBoxData[];
+    wedgeNormals: any[]; // SoftSkinWedgeNormal[]
+    weights: any[][]; // VectorVectorSoftSkinWeightEntry
+    nodes: number[];
+  }
+
+  export interface MultiResolutionMesh {
+    positions: Vector3[];
+    normals: Vector3[];
+    subMeshes: SubMesh[];
+    materials: Material[];
+    bbox: BoundingBoxData;
+    obbox: OrientedBoundingBoxData;
+  }
+
+  export interface SubMesh {
+    mat: Material;
+    triangles: any[]; // MeshTriangle[]
+    wedges: any[]; // MeshWedge[]
+    colors: number[];
+    trianglePlaneIndices: number[];
+    trianglePlanes: any[]; // MeshPlane[]
+    wedgeMap: number[];
+  }
+
+  export interface BoundingBoxData {
+    min: Vector3;
+    max: Vector3;
   }
 
   export interface ModelHierarchyLoader {
@@ -353,52 +455,41 @@ declare module '@kolarz3/zenkit' {
   export interface DaedalusVm {
     // Get symbol count
     symbolCount: number;
-    
-    // Check if a symbol exists
+
+    // Check if a symbol exists (without exposing raw pointer)
     hasSymbol(name: string): boolean;
-    
+
     // Get string value from a symbol (for instance members, pass instance symbol name)
     getSymbolString(symbolName: string, instanceName?: string): string;
-    
+
     // Get int value from a symbol (for instance members, pass instance symbol name)
     getSymbolInt(symbolName: string, instanceName?: string): number;
-    
+
     // Get float value from a symbol (for instance members, pass instance symbol name)
     getSymbolFloat(symbolName: string, instanceName?: string): number;
-    
+
     // Get symbol name from symbol index
     getSymbolNameByIndex(symbolIndex: number): StringResult;
-    
+
     // Get instance property value by instance index and property name
-    // Returns the property value (string, number, or instance object) based on property type
-    getInstancePropertyByIndex(instanceIndex: number, propertyName: string): FunctionCallResult;
-    
-    // Call a VM function
-    // Parameters: function name and array of parameters (numbers, strings, or instance objects)
-    // Returns: Result with return value (number, string, instance object, or undefined for void)
-    callFunction(functionName: string, params: any[]): FunctionCallResult;
-    
+    getInstancePropertyByIndex(instanceIndex: number, propertyName: string): ValResult;
+
+    // Call a VM function with flexible parameters
+    callFunction(functionName: string, params: any[]): ValResult;
+
     // Register an external function with a JavaScript callback
-    // The callback will receive parameters based on the function signature
-    // For void functions, callback should return nothing
-    // For functions with return values, callback should return the appropriate type
     registerExternal(functionName: string, callback: (...args: any[]) => any): Result<boolean>;
-    
+
     // Set the global 'self' variable (var C_NPC self)
-    // Many VM functions use the global 'self' variable to refer to the current NPC
-    setGlobalSelf(instanceName: string | DaedalusInstance): Result<boolean>;
-    
+    setGlobalSelf(instanceName: string | any): Result<boolean>;
+
     // Set the global 'other' variable (var C_NPC other)
-    // Many VM functions use the global 'other' variable to refer to another NPC (usually the player)
-    setGlobalOther(instanceName: string | DaedalusInstance): Result<boolean>;
-    
+    setGlobalOther(instanceName: string | any): Result<boolean>;
+
     // Initialize an instance by symbol index
-    // This creates and initializes an instance if it doesn't exist.
-    // The instance definition code will be executed, setting all properties.
-    initInstanceByIndex(symbolIndex: number): FunctionCallResult;
-    
+    initInstanceByIndex(symbolIndex: number): ValResult;
+
     // Set a default external handler callback for unregistered external functions
-    // The callback receives the function name as a string
     setDefaultExternalHandler(callback: (functionName: string) => void): Result<boolean>;
   }
   
@@ -424,12 +515,20 @@ declare module '@kolarz3/zenkit' {
   export interface Result<T> {
     // Whether the operation succeeded
     success: boolean;
-    
+
     // Result data (only present if success is true)
     data?: T;
-    
+
     // Error message (only present if success is false)
     errorMessage?: string;
+  }
+
+  export interface ValResult extends Result<any> {}
+
+  export interface Matrix3x3Data {
+    get(row: number, col: number): number;
+    getIndex(index: number): number;
+    toArray(): number[];
   }
   
   export interface CutsceneLibrary {
@@ -454,12 +553,166 @@ declare module '@kolarz3/zenkit' {
   export interface CutsceneBlock {
     // Dialogue text (Windows-1250 encoded, converted to UTF-8)
     text: string;
-    
+
     // Message name (Windows-1250 encoded, converted to UTF-8)
     name: string;
-    
+
     // Block name (Windows-1250 encoded, converted to UTF-8)
     blockName: string;
+  }
+
+  export interface LibraryInfo {
+    version: string;
+    buildType: string;
+    hasMmap: boolean;
+    debugBuild: boolean;
+  }
+
+  export interface ModelScript {
+    // Load model script from buffer (.MSB format)
+    loadFromArray(buffer: Uint8Array): Result<boolean>;
+
+    // Get last error message
+    getLastError(): string;
+
+    // Get skeleton name
+    getSkeletonName(): string;
+
+    // Check if skeleton mesh is disabled
+    isSkeletonMeshDisabled(): boolean;
+
+    // Get mesh count
+    getMeshCount(): number;
+
+    // Get mesh name at index
+    getMeshName(index: number): string;
+
+    // Get disabled animation count
+    getDisabledAnimationCount(): number;
+
+    // Get disabled animation name at index
+    getDisabledAnimationName(index: number): string;
+
+    // Get animation count
+    getAnimationCount(): number;
+
+    // Get animation name at index
+    getAnimationName(index: number): string;
+
+    // Get animation layer at index
+    getAnimationLayer(index: number): number;
+
+    // Get animation next name at index
+    getAnimationNext(index: number): string;
+
+    // Get animation blend in at index
+    getAnimationBlendIn(index: number): number;
+
+    // Get animation blend out at index
+    getAnimationBlendOut(index: number): number;
+
+    // Get animation flags at index
+    getAnimationFlags(index: number): number;
+
+    // Get animation model at index
+    getAnimationModel(index: number): string;
+
+    // Get animation first frame at index
+    getAnimationFirstFrame(index: number): number;
+
+    // Get animation last frame at index
+    getAnimationLastFrame(index: number): number;
+
+    // Get animation FPS at index
+    getAnimationFps(index: number): number;
+
+    // Get animation speed at index
+    getAnimationSpeed(index: number): number;
+  }
+
+  export interface ModelAnimation {
+    // Load model animation from buffer (.MAN format)
+    loadFromArray(buffer: Uint8Array): Result<boolean>;
+
+    // Get last error message
+    getLastError(): string;
+
+    // Get animation name
+    getName(): string;
+
+    // Get next animation name
+    getNext(): string;
+
+    // Get layer
+    getLayer(): number;
+
+    // Get frame count
+    getFrameCount(): number;
+
+    // Get node count
+    getNodeCount(): number;
+
+    // Get node index count (mapping MAN -> hierarchy)
+    getNodeIndexCount(): number;
+
+    // Get FPS
+    getFps(): number;
+
+    // Get source FPS
+    getFpsSource(): number;
+
+    // Get sample count
+    getSampleCount(): number;
+
+    // Get sample at index (returns position and rotation)
+    getSample(frameIndex: number, nodeIndex: number): AnimationSample | null;
+
+    // Get node index mapping at position
+    getNodeIndex(index: number): number;
+  }
+
+  export interface AnimationSample {
+    position: Vector3;
+    rotation: Vector4;
+  }
+
+  export interface Vector4 {
+    x: number;
+    y: number;
+    z: number;
+    w: number;
+  }
+
+  export interface PoseEvaluator {
+    // Initialize evaluator from an animation
+    setAnimation(animation: ModelAnimation): void;
+
+    // Initialize evaluator from a ModelAnimationWrapper
+    setAnimationFromWrapper(wrapper: ModelAnimation): void;
+
+    // Clear current animation data
+    clear(): void;
+
+    // Check if an animation is set
+    hasAnimation(): boolean;
+
+    // Get total number of frames
+    getFrameCount(): number;
+
+    // Get node index count (mapping entries)
+    getNodeIndexCount(): number;
+
+    // Get node index mapping at position
+    getNodeIndex(index: number): number;
+
+    // Get animation FPS
+    getFps(): number;
+
+    // Get total duration in milliseconds
+    getTotalTimeMs(): number;
+
+    // Evaluate pose at a given time (milliseconds)
+    evaluate(now_ms: number, loop: boolean): AnimationSample[];
   }
 
   const zenkit: ZenKit;
