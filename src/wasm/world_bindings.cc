@@ -232,7 +232,9 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
     value_object<MaterialData>("MaterialData")
         .field("name", &MaterialData::name)
         .field("group", &MaterialData::group)
-        .field("texture", &MaterialData::texture);
+        .field("texture", &MaterialData::texture)
+        // ZenGin: zCMaterial::noCollDet (skip polygons during collision detection)
+        .field("disableCollision", &MaterialData::disable_collision);
 
     value_object<OrientedBoundingBoxData>("OrientedBoundingBoxData")
         .field("center", &OrientedBoundingBoxData::center)
@@ -280,7 +282,9 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("group", &zenkit::Material::group)
         .field("texture", &zenkit::Material::texture)
         .field("textureScale", &zenkit::Material::texture_scale)
-        .field("smoothAngle", &zenkit::Material::smooth_angle);
+        .field("smoothAngle", &zenkit::Material::smooth_angle)
+        // ZenGin: zCMaterial::noCollDet (skip polygons during collision detection)
+        .field("disableCollision", &zenkit::Material::disable_collision);
     
     value_object<zenkit::MeshWedge>("MeshWedge")
         .field("normal", &zenkit::MeshWedge::normal)

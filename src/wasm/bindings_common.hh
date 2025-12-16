@@ -90,12 +90,14 @@ namespace zenkit::wasm {
         std::string name;
         uint8_t group;
         std::string texture;
+        bool disable_collision = false;
 
         MaterialData() = default;
         MaterialData(const zenkit::Material& material)
             : name(material.name)
             , group(static_cast<uint8_t>(material.group))
-            , texture(material.texture) {}
+            , texture(material.texture)
+            , disable_collision(material.disable_collision) {}
     };
 
     /// \brief Processed mesh data matching OpenGothic's PackedMesh pipeline

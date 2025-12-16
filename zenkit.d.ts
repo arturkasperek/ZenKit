@@ -276,8 +276,17 @@ declare module '@kolarz3/zenkit' {
   export interface StringResult extends Result<string> {}
 
   export interface Material {
+    name?: string;
+    group?: number;
     // Texture name/path
     texture: string;
+    textureScale?: { x: number; y: number };
+    smoothAngle?: number;
+    /**
+     * ZenGin: zCMaterial::noCollDet
+     * If true, polygons with this material are skipped during collision detection (foliage, small branches, etc.).
+     */
+    disableCollision?: boolean;
   }
 
   export interface Model {
