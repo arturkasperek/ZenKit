@@ -300,7 +300,11 @@ namespace zenkit::wasm {
         , rotation(vob.rotation)
         , visual(*vob.visual)
         , show_visual(vob.show_visual)
-        , cd_dynamic(vob.cd_dynamic) {
+        , cd_static(vob.cd_static)
+        , cd_dynamic(vob.cd_dynamic)
+        , vob_static(vob.vob_static)
+        , physics_enabled(vob.physics_enabled)
+        , bbox(vob.bbox) {
         
         // Recursively convert children
         children.reserve(vob.children.size());

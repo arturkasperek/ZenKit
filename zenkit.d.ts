@@ -83,7 +83,11 @@ declare module '@kolarz3/zenkit' {
     rotation: Matrix3x3Data;
     visual: Visual;
     showVisual: boolean;
+    cdStatic: boolean;
     cdDynamic: boolean;
+    vobStatic: boolean;
+    physicsEnabled: boolean;
+    bbox: BoundingBoxData;
     children: VobData[];
   }
 

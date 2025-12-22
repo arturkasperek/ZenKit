@@ -232,6 +232,15 @@ namespace zenkit::wasm {
             , type(static_cast<uint32_t>(visual.type)) {}
     };
 
+    struct BoundingBoxData {
+        Vector3 min;
+        Vector3 max;
+
+        BoundingBoxData() = default;
+        BoundingBoxData(const zenkit::AxisAlignedBoundingBox& bbox)
+            : min(bbox.min), max(bbox.max) {}
+    };
+
     /// \brief VOB (Visual Object) data - represents interactive/static objects in the world
     struct VobData {
         uint32_t id;                // Unique VOB ID
@@ -241,20 +250,15 @@ namespace zenkit::wasm {
         Matrix3x3Data rotation;     // Rotation matrix
         VisualData visual;          // Visual information (mesh name, type)
         bool show_visual;           // Whether to render the visual
-        bool cd_dynamic;            // Collision detection enabled
+        bool cd_static;             // Static collision detection enabled
+        bool cd_dynamic;            // Dynamic collision detection enabled
+        bool vob_static;            // VOB is static
+        bool physics_enabled;       // VOB has physics enabled
+        BoundingBoxData bbox;       // Axis-aligned bounding box (world space)
         std::vector<VobData> children; // Child VOBs
         
         VobData() = default;
         VobData(const zenkit::VirtualObject& vob);  // Forward declaration, implemented in .cc
-    };
-
-    struct BoundingBoxData {
-        Vector3 min;
-        Vector3 max;
-
-        BoundingBoxData() = default;
-        BoundingBoxData(const zenkit::AxisAlignedBoundingBox& bbox)
-            : min(bbox.min), max(bbox.max) {}
     };
 
     /// \brief Waypoint data for navigation/pathfinding

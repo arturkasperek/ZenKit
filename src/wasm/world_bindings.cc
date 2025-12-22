@@ -337,7 +337,11 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("rotation", &VobData::rotation)
         .field("visual", &VobData::visual)
         .field("showVisual", &VobData::show_visual)
+        .field("cdStatic", &VobData::cd_static)
         .field("cdDynamic", &VobData::cd_dynamic)
+        .field("vobStatic", &VobData::vob_static)
+        .field("physicsEnabled", &VobData::physics_enabled)
+        .field("bbox", &VobData::bbox)
         .field("children", &VobData::children);
 
     // ProcessedMeshData - OpenGothic-style processed mesh
