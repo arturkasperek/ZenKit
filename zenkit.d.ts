@@ -36,6 +36,16 @@ declare module '@kolarz3/zenkit' {
     // Pose evaluator operations
     createPoseEvaluator(): PoseEvaluator;
 
+    // CPU Skinning operations
+    applyCpuSkinning(
+      boneMatrices: Float32Array,
+      basePositions: Float32Array,
+      baseNormals: Float32Array,
+      vertexWeights: Uint32Array,
+      vertexCount: number,
+      boneCount: number
+    ): { positions: Float32Array; normals: Float32Array };
+
     // Texture constructor
     Texture: new () => Texture;
   }
