@@ -195,7 +195,6 @@ if (ZK_BUILD_WASM)
         src/wasm/zenkit_wasm.cc
         src/wasm/bindings_common.cc
         src/wasm/world_bindings.cc
-        src/wasm/skinning_bindings.cc
     )
     target_link_libraries(zenkit-wasm PRIVATE zenkit)
     
