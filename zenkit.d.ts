@@ -361,6 +361,24 @@ declare module '@kolarz3/zenkit' {
     wedgeNormals: any[]; // SoftSkinWedgeNormal[]
     weights: any[][]; // VectorVectorSoftSkinWeightEntry
     nodes: number[];
+
+    /**
+     * Returns JS-owned TypedArrays for skinning data (max 4 influences per vertex).
+     * Intended to avoid per-vertex `weights.get(i).get(j)` object overhead in JS.
+     *
+     * - `boneIndices`: `Uint16Array` of length `vertexCount * 4`
+     * - `boneWeights`: `Float32Array` of length `vertexCount * 4`
+     * - `bonePositions`: `Float32Array` of length `vertexCount * 4 * 3` (bone-local positions per influence)
+     */
+    getPackedWeights4(): PackedSkinningWeights4;
+  }
+
+  export interface PackedSkinningWeights4 {
+    vertexCount: number;
+    maxInfluences: 4;
+    boneIndices: Uint16Array;
+    boneWeights: Float32Array;
+    bonePositions: Float32Array;
   }
 
   export interface MultiResolutionMesh {

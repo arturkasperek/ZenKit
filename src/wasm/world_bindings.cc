@@ -482,7 +482,75 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .property("bboxes", &zenkit::SoftSkinMesh::bboxes)
         .property("wedgeNormals", &zenkit::SoftSkinMesh::wedge_normals)
         .property("weights", &zenkit::SoftSkinMesh::weights)
-        .property("nodes", &zenkit::SoftSkinMesh::nodes);
+        .property("nodes", &zenkit::SoftSkinMesh::nodes)
+        // Performance: return JS-owned TypedArrays for skinning weights (max 4 influences per vertex).
+        .function("getPackedWeights4", +[](const zenkit::SoftSkinMesh& mesh) {
+            const size_t vertexCount = mesh.weights.size();
+            constexpr size_t kMaxInf = 4;
+
+            std::vector<uint16_t> boneIndices(vertexCount * kMaxInf, 0);
+            std::vector<float> boneWeights(vertexCount * kMaxInf, 0.0f);
+            std::vector<float> bonePositions(vertexCount * kMaxInf * 3, 0.0f);
+
+            for (size_t v = 0; v < vertexCount; ++v) {
+                const auto& vw = mesh.weights[v];
+
+                float total = 0.0f;
+                for (size_t i = 0; i < kMaxInf; ++i) {
+                    if (i >= vw.size()) break;
+                    const auto& w = vw[i];
+
+                    boneIndices[v * kMaxInf + i] = static_cast<uint16_t>(w.node_index);
+                    boneWeights[v * kMaxInf + i] = w.weight;
+                    total += w.weight;
+
+                    const size_t base = (v * kMaxInf + i) * 3;
+                    bonePositions[base + 0] = w.position.x;
+                    bonePositions[base + 1] = w.position.y;
+                    bonePositions[base + 2] = w.position.z;
+                }
+
+                // Normalize weights (defensive; some meshes contain minor floating errors).
+                if (total > 0.0001f) {
+                    for (size_t i = 0; i < kMaxInf; ++i) {
+                        boneWeights[v * kMaxInf + i] /= total;
+                    }
+                } else {
+                    boneWeights[v * kMaxInf + 0] = 1.0f;
+                    boneIndices[v * kMaxInf + 0] = 0;
+                }
+            }
+
+            emscripten::val obj = emscripten::val::object();
+            obj.set("vertexCount", static_cast<double>(vertexCount));
+            obj.set("maxInfluences", static_cast<double>(kMaxInf));
+
+            emscripten::val Uint16Array = emscripten::val::global("Uint16Array");
+            emscripten::val Float32Array = emscripten::val::global("Float32Array");
+
+            emscripten::val jsIndices = Uint16Array.new_(boneIndices.size());
+            jsIndices.call<void>(
+                "set",
+                emscripten::val(emscripten::typed_memory_view(boneIndices.size(), boneIndices.data()))
+            );
+            obj.set("boneIndices", jsIndices);
+
+            emscripten::val jsWeights = Float32Array.new_(boneWeights.size());
+            jsWeights.call<void>(
+                "set",
+                emscripten::val(emscripten::typed_memory_view(boneWeights.size(), boneWeights.data()))
+            );
+            obj.set("boneWeights", jsWeights);
+
+            emscripten::val jsPositions = Float32Array.new_(bonePositions.size());
+            jsPositions.call<void>(
+                "set",
+                emscripten::val(emscripten::typed_memory_view(bonePositions.size(), bonePositions.data()))
+            );
+            obj.set("bonePositions", jsPositions);
+
+            return obj;
+        });
 
     // Factory functions
     function("createWorld", &createWorld);
