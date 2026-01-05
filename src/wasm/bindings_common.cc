@@ -23,8 +23,84 @@
 #include <map>
 #include <unordered_map>
 #include <variant>
+#include <optional>
+#include <charconv>
 
 namespace zenkit::wasm {
+
+    namespace {
+        static inline bool is_space(char c) {
+            return std::isspace(static_cast<unsigned char>(c)) != 0;
+        }
+
+        static std::string_view trim_view(std::string_view s) {
+            while (!s.empty() && is_space(s.front())) s.remove_prefix(1);
+            while (!s.empty() && is_space(s.back())) s.remove_suffix(1);
+            return s;
+        }
+
+        struct SymbolAccess {
+            std::string baseName;
+            uint16_t    index = 0;
+            bool        hasIndex = false;
+        };
+
+        static std::optional<uint16_t> parse_u16(std::string_view token) {
+            token = trim_view(token);
+            if (token.empty()) return std::nullopt;
+
+            uint32_t tmp = 0;
+            auto* b = token.data();
+            auto* e = token.data() + token.size();
+            auto [ptr, ec] = std::from_chars(b, e, tmp);
+            if (ec != std::errc() || ptr != e || tmp > 0xFFFFu) return std::nullopt;
+            return static_cast<uint16_t>(tmp);
+        }
+
+        static std::optional<uint16_t> resolve_index_token(zenkit::DaedalusVm& vm, std::string_view token) {
+            if (auto v = parse_u16(token)) return v;
+
+            // Try resolve `ATR_*` style constants from globals.
+            try {
+                std::string name(trim_view(token));
+                if (name.empty()) return std::nullopt;
+                auto* sym = vm.find_symbol_by_name(name);
+                if (!sym) return std::nullopt;
+                if (sym->type() != zenkit::DaedalusDataType::INT && sym->type() != zenkit::DaedalusDataType::FUNCTION) return std::nullopt;
+                const int32_t idx = sym->get_int();
+                if (idx < 0 || idx > 0xFFFF) return std::nullopt;
+                return static_cast<uint16_t>(idx);
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
+
+        static SymbolAccess parse_symbol_access(zenkit::DaedalusVm& vm, const std::string& symbolName) {
+            std::string_view s = trim_view(symbolName);
+            if (s.empty()) return SymbolAccess{std::string(s), 0, false};
+
+            const size_t rb = s.rfind(']');
+            if (rb == std::string_view::npos) return SymbolAccess{std::string(s), 0, false};
+
+            // Only treat as indexed access if `]` is at the end (ignoring whitespace).
+            {
+                std::string_view tail = trim_view(s.substr(rb + 1));
+                if (!tail.empty()) return SymbolAccess{std::string(s), 0, false};
+            }
+
+            const size_t lb = s.rfind('[', rb);
+            if (lb == std::string_view::npos || lb >= rb) return SymbolAccess{std::string(s), 0, false};
+
+            std::string_view base = trim_view(s.substr(0, lb));
+            std::string_view token = trim_view(s.substr(lb + 1, rb - lb - 1));
+            if (base.empty() || token.empty()) return SymbolAccess{std::string(s), 0, false};
+
+            auto idx = resolve_index_token(vm, token);
+            if (!idx) return SymbolAccess{std::string(s), 0, false};
+
+            return SymbolAccess{std::string(base), *idx, true};
+        }
+    }
 
     std::unique_ptr<zenkit::Read> create_reader_from_buffer(uintptr_t data_ptr, size_t length) {
         auto bytes = reinterpret_cast<const std::byte*>(data_ptr);
@@ -956,6 +1032,7 @@ namespace zenkit::wasm {
 
     std::string DaedalusVmWrapper::getSymbolString(const std::string& symbolName, const std::string& instanceName) {
         try {
+            const auto acc = parse_symbol_access(vm_, symbolName);
             if (!instanceName.empty()) {
                 // Looking up an instance member
                 auto* instanceSym = vm_.find_symbol_by_name(instanceName);
@@ -968,14 +1045,14 @@ namespace zenkit::wasm {
                     return "";
                 }
                 
-                auto* memberSym = findMemberSymbol(instanceSym, symbolName);
+                auto* memberSym = findMemberSymbol(instanceSym, acc.baseName);
                 if (!memberSym || !memberSym->is_member() || 
                     memberSym->type() != zenkit::DaedalusDataType::STRING) {
                     return "";
                 }
                 
                 try {
-                    std::string result = memberSym->get_string(0, instance.get());
+                    std::string result = memberSym->get_string(acc.hasIndex ? acc.index : 0, instance.get());
                     // Convert Windows-1250 to UTF-8 for proper display in JavaScript
                     return convertWindows1250ToUtf8(result);
                 } catch (...) {
@@ -983,12 +1060,12 @@ namespace zenkit::wasm {
                 }
             } else {
                 // Looking up a global symbol
-                auto* memberSym = vm_.find_symbol_by_name(symbolName);
+                auto* memberSym = vm_.find_symbol_by_name(acc.baseName);
                 if (!memberSym || memberSym->type() != zenkit::DaedalusDataType::STRING) {
                     return "";
                 }
                 try {
-                    std::string result = memberSym->get_string();
+                    std::string result = memberSym->get_string(acc.hasIndex ? acc.index : 0, nullptr);
                     // Convert Windows-1250 to UTF-8 for proper display in JavaScript
                     return convertWindows1250ToUtf8(result);
                 } catch (...) {
@@ -1002,6 +1079,7 @@ namespace zenkit::wasm {
 
     int32_t DaedalusVmWrapper::getSymbolInt(const std::string& symbolName, const std::string& instanceName) {
         try {
+            const auto acc = parse_symbol_access(vm_, symbolName);
             if (!instanceName.empty()) {
                 auto* instanceSym = vm_.find_symbol_by_name(instanceName);
                 if (!instanceSym || instanceSym->type() != zenkit::DaedalusDataType::INSTANCE) {
@@ -1013,7 +1091,7 @@ namespace zenkit::wasm {
                     return 0;
                 }
                 
-                auto* memberSym = findMemberSymbol(instanceSym, symbolName);
+                auto* memberSym = findMemberSymbol(instanceSym, acc.baseName);
                 if (!memberSym || !memberSym->is_member() || 
                     (memberSym->type() != zenkit::DaedalusDataType::INT && 
                      memberSym->type() != zenkit::DaedalusDataType::FUNCTION)) {
@@ -1021,19 +1099,19 @@ namespace zenkit::wasm {
                 }
                 
                 try {
-                    return memberSym->get_int(0, instance.get());
+                    return memberSym->get_int(acc.hasIndex ? acc.index : 0, instance.get());
                 } catch (...) {
                     return 0;
                 }
             } else {
                 // Looking up a global symbol
-                auto* memberSym = vm_.find_symbol_by_name(symbolName);
+                auto* memberSym = vm_.find_symbol_by_name(acc.baseName);
                 if (!memberSym || (memberSym->type() != zenkit::DaedalusDataType::INT && 
                                   memberSym->type() != zenkit::DaedalusDataType::FUNCTION)) {
                     return 0;
                 }
                 try {
-                    return memberSym->get_int();
+                    return memberSym->get_int(acc.hasIndex ? acc.index : 0, nullptr);
                 } catch (...) {
                     return 0;
                 }
@@ -1045,6 +1123,7 @@ namespace zenkit::wasm {
 
     float DaedalusVmWrapper::getSymbolFloat(const std::string& symbolName, const std::string& instanceName) {
         try {
+            const auto acc = parse_symbol_access(vm_, symbolName);
             if (!instanceName.empty()) {
                 zenkit::DaedalusSymbol* instanceSym = vm_.find_symbol_by_name(instanceName);
                 if (!instanceSym || instanceSym->type() != zenkit::DaedalusDataType::INSTANCE) {
@@ -1068,43 +1147,24 @@ namespace zenkit::wasm {
                     return 0.0f;
                 }
 
-                zenkit::DaedalusSymbol* memberSym = nullptr;
-                try {
-                    if (instanceSym->parent() != static_cast<uint32_t>(-1)) {
-                        auto* parentSym = vm_.find_symbol_by_index(instanceSym->parent());
-                        if (parentSym && parentSym->type() == zenkit::DaedalusDataType::CLASS) {
-                            std::string qualifiedName = parentSym->name() + "." + symbolName;
-                            memberSym = vm_.find_symbol_by_name(qualifiedName);
-                        }
-                    }
-                } catch (...) {
-                    // Parent lookup failed
-                }
-                
-                if (!memberSym) {
-                    try {
-                        memberSym = vm_.find_symbol_by_name(symbolName);
-                    } catch (...) {
-                        return 0.0f;
-                    }
-                }
+                auto* memberSym = findMemberSymbol(instanceSym, acc.baseName);
                 
                 if (!memberSym || memberSym->type() != zenkit::DaedalusDataType::FLOAT) {
                     return 0.0f;
                 }
 
                 try {
-                    return memberSym->get_float(0, instance.get());
+                    return memberSym->get_float(acc.hasIndex ? acc.index : 0, instance.get());
                 } catch (const std::exception& e) {
                     return 0.0f;
                 }
             } else {
-                auto* memberSym = vm_.find_symbol_by_name(symbolName);
+                auto* memberSym = vm_.find_symbol_by_name(acc.baseName);
                 if (!memberSym || memberSym->type() != zenkit::DaedalusDataType::FLOAT) {
                     return 0.0f;
                 }
                 try {
-                    return memberSym->get_float();
+                    return memberSym->get_float(acc.hasIndex ? acc.index : 0, nullptr);
                 } catch (...) {
                     return 0.0f;
                 }
@@ -1224,7 +1284,8 @@ namespace zenkit::wasm {
             std::string instanceName = instanceSym->name();
             
             // Try to get the property value based on type
-            auto* memberSym = findMemberSymbol(instanceSym, propertyName);
+            const auto acc = parse_symbol_access(vm_, propertyName);
+            auto* memberSym = findMemberSymbol(instanceSym, acc.baseName);
             if (!memberSym || !memberSym->is_member()) {
                 return Result<emscripten::val>("Property '" + propertyName + "' not found in instance '" + instanceName + "'");
             }
@@ -1237,7 +1298,7 @@ namespace zenkit::wasm {
             // Get value based on property type
             if (memberSym->type() == zenkit::DaedalusDataType::STRING) {
                 try {
-                    std::string result = memberSym->get_string(0, instance.get());
+                    std::string result = memberSym->get_string(acc.hasIndex ? acc.index : 0, instance.get());
                     std::string utf8_result = convertWindows1250ToUtf8(result);
                     return Result<emscripten::val>(emscripten::val(utf8_result));
                 } catch (...) {
@@ -1246,14 +1307,14 @@ namespace zenkit::wasm {
             } else if (memberSym->type() == zenkit::DaedalusDataType::INT || 
                        memberSym->type() == zenkit::DaedalusDataType::FUNCTION) {
                 try {
-                    int32_t result = memberSym->get_int(0, instance.get());
+                    int32_t result = memberSym->get_int(acc.hasIndex ? acc.index : 0, instance.get());
                     return Result<emscripten::val>(emscripten::val(result));
                 } catch (...) {
                     return Result<emscripten::val>("Error reading int property '" + propertyName + "'");
                 }
             } else if (memberSym->type() == zenkit::DaedalusDataType::FLOAT) {
                 try {
-                    float result = memberSym->get_float(0, instance.get());
+                    float result = memberSym->get_float(acc.hasIndex ? acc.index : 0, instance.get());
                     return Result<emscripten::val>(emscripten::val(result));
                 } catch (...) {
                     return Result<emscripten::val>("Error reading float property '" + propertyName + "'");
