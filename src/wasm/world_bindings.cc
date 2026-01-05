@@ -7,6 +7,7 @@
 #include "zenkit/Mesh.hh"
 #include "zenkit/world/BspTree.hh"
 #include "zenkit/world/WayNet.hh"
+#include "zenkit/vobs/VirtualObject.hh"
 
 namespace zenkit::wasm {
 
@@ -113,6 +114,29 @@ namespace zenkit::wasm {
                 }
             }
             return vobs;
+        }
+
+        // Get all zCVobStartpoint VOBs (player startpoints)
+        std::vector<VobData> getStartpoints() const {
+            std::vector<VobData> out;
+
+            const auto wanted = zenkit::VirtualObjectType::zCVobStartpoint;
+
+            const auto visit = [&](const auto& self, const zenkit::VirtualObject& vob) -> void {
+                if (vob.type == wanted) {
+                    out.emplace_back(vob);
+                }
+                for (const auto& child : vob.children) {
+                    if (child) self(self, *child);
+                }
+            };
+
+            for (const auto& root : world_.world_vobs) {
+                if (!root) continue;
+                visit(visit, *root);
+            }
+
+            return out;
         }
 
         // Get waypoint count
@@ -451,6 +475,7 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         
         // VOBs access
         .function("getVobs", &WorldWrapper::getVobs)
+        .function("getStartpoints", &WorldWrapper::getStartpoints)
         
         // Waypoint access
         .function("getWaypointCount", &WorldWrapper::getWaypointCount)

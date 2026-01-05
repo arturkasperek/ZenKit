@@ -62,6 +62,8 @@ declare module '@kolarz3/zenkit' {
 
     // Get VOBs collection
     getVobs(): VobCollection;
+    // Player startpoints (zCVobStartpoint)
+    getStartpoints(): VobCollection;
 
     // Waypoint access
     getWaypointCount(): number;
@@ -111,9 +113,12 @@ declare module '@kolarz3/zenkit' {
     
     // Child VOBs
     children: VobCollection;
-    
+
     // Whether to show visual
     showVisual: boolean;
+
+    // VirtualObjectType enum value (e.g. 12 = zCVobStartpoint)
+    type?: number;
     
     // VOB name (various possible property names)
     objectName?: string;
