@@ -855,11 +855,14 @@ namespace zenkit::wasm {
             
             // Register common classes as opaque types so we can create DaedalusOpaqueInstance objects
             // This sets up member offsets without needing registered instance types like IItem
-            // We register the most common classes that are likely to be accessed
-            const char* common_classes[] = {
-                "C_ITEM", "C_NPC", "C_INFO", "C_MISSION", "C_FOCUS", 
-                "C_ITEMREACT", "C_SPELL", "C_MENU", "C_MENU_ITEM"
-            };
+	            // We register the most common classes that are likely to be accessed
+	            const char* common_classes[] = {
+	                "C_ITEM", "C_NPC", "C_INFO", "C_MISSION", "C_FOCUS", 
+	                "C_ITEMREACT", "C_SPELL", "C_MENU", "C_MENU_ITEM",
+	                // Camera.dat (loaded separately from Gothic.dat) relies on CCAMSYS instances.
+	                // Registering it enables reading CAMMOD* values via opaque instances in WASM.
+	                "CCAMSYS"
+	            };
             
             for (const char* class_name : common_classes) {
                 try {
