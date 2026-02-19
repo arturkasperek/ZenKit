@@ -535,6 +535,12 @@ declare module '@kolarz3/zenkit' {
     // Set the global 'other' variable (var C_NPC other)
     setGlobalOther(instanceName: string | any): Result<boolean>;
 
+    // Set the global 'hero' variable (var C_NPC hero)
+    setGlobalHero(instanceName: string | any): Result<boolean>;
+
+    // Set an arbitrary INSTANCE symbol (e.g. HERO) to a given instance
+    setSymbolInstance(symbolName: string, instanceName: string | any): Result<boolean>;
+
     // Initialize an instance by symbol index
     initInstanceByIndex(symbolIndex: number): ValResult;
 

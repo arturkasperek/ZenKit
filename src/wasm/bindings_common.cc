@@ -1750,6 +1750,52 @@ namespace zenkit::wasm {
         }
     }
 
+    Result<bool> DaedalusVmWrapper::setGlobalHero(const emscripten::val& instanceName) {
+        try {
+            auto* globalHeroSym = vm_.global_hero();
+            if (!globalHeroSym) {
+                return Result<bool>("Global 'hero' symbol not found in VM");
+            }
+
+            auto instanceResult = parseInstanceParameter(instanceName);
+            if (!instanceResult.success) {
+                return Result<bool>(instanceResult.error_message);
+            }
+
+            globalHeroSym->set_instance(instanceResult.data);
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            return Result<bool>(e.what());
+        } catch (...) {
+            return Result<bool>("Unknown error setting global 'hero'");
+        }
+    }
+
+    Result<bool> DaedalusVmWrapper::setSymbolInstance(const std::string& symbolName, const emscripten::val& instanceName) {
+        try {
+            auto* targetSym = vm_.find_symbol_by_name(symbolName);
+            if (!targetSym) {
+                return Result<bool>("Symbol '" + symbolName + "' not found in VM");
+            }
+
+            if (targetSym->type() != zenkit::DaedalusDataType::INSTANCE) {
+                return Result<bool>("Symbol '" + symbolName + "' is not an instance type");
+            }
+
+            auto instanceResult = parseInstanceParameter(instanceName);
+            if (!instanceResult.success) {
+                return Result<bool>(instanceResult.error_message);
+            }
+
+            targetSym->set_instance(instanceResult.data);
+            return Result<bool>(true);
+        } catch (const std::exception& e) {
+            return Result<bool>(e.what());
+        } catch (...) {
+            return Result<bool>("Unknown error setting symbol instance '" + symbolName + "'");
+        }
+    }
+
     Result<emscripten::val> DaedalusVmWrapper::initInstanceByIndex(int32_t symbolIndex) {
         try {
             if (symbolIndex < 0) {

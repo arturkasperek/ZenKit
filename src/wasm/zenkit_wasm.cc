@@ -296,6 +296,8 @@ EMSCRIPTEN_BINDINGS(zenkit_daedalus) {
         .function("registerExternal", &DaedalusVmWrapper::registerExternal)
         .function("setGlobalSelf", &DaedalusVmWrapper::setGlobalSelf)
         .function("setGlobalOther", &DaedalusVmWrapper::setGlobalOther)
+        .function("setGlobalHero", &DaedalusVmWrapper::setGlobalHero)
+        .function("setSymbolInstance", &DaedalusVmWrapper::setSymbolInstance)
         .function("initInstanceByIndex", &DaedalusVmWrapper::initInstanceByIndex)
         .function("setDefaultExternalHandler", &DaedalusVmWrapper::setDefaultExternalHandler);
 

@@ -1031,6 +1031,17 @@ namespace zenkit::wasm {
         /// This must be set before calling functions that use 'other'.
         Result<bool> setGlobalOther(const emscripten::val& instanceName);
 
+        /// \brief Set the global 'hero' variable (var C_NPC hero)
+        /// \param instanceName Instance name string or instance object with symbol_index
+        /// \return Result indicating success or error
+        Result<bool> setGlobalHero(const emscripten::val& instanceName);
+
+        /// \brief Set an arbitrary INSTANCE symbol to the given instance object
+        /// \param symbolName Name of an INSTANCE symbol (e.g. "HERO")
+        /// \param instanceName Instance name string or instance object with symbol_index
+        /// \return Result indicating success or error
+        Result<bool> setSymbolInstance(const std::string& symbolName, const emscripten::val& instanceName);
+
         /// \brief Initialize an instance by symbol index
         /// \param symbolIndex Symbol index of the instance to initialize
         /// \return Result containing the initialized instance or error message
