@@ -1,11 +1,10 @@
 import fs from "fs";
-import path from "path";
 
 describe("World startpoints (zCVobStartpoint)", () => {
   test("exposes startpoints via getStartpoints()", async () => {
     const zenkit = await global.setupZenKit();
 
-    const zenPath = path.join(process.cwd(), "..", "spacer-web", "public", "WORLDS", "NEWWORLD", "NEWWORLD.ZEN");
+    const zenPath = global.getGameAssetPath("WORLDS", "NEWWORLD", "NEWWORLD.ZEN");
     expect(fs.existsSync(zenPath)).toBe(true);
 
     const buf = fs.readFileSync(zenPath);
@@ -25,4 +24,3 @@ describe("World startpoints (zCVobStartpoint)", () => {
     expect(typeof (sp0.name || sp0.vobName || sp0.objectName)).toBe("string");
   });
 });
-

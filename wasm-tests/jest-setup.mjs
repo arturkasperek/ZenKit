@@ -68,6 +68,10 @@ global.getTestDataPath = (filename) => {
     return path.join(process.cwd(), 'tests', 'samples', filename);
 };
 
+global.getGameAssetPath = (...parts) => {
+    return path.join(process.cwd(), 'public', 'game-assets', ...parts);
+};
+
 global.loadFileIntoWasm = (filepath, zenkitInstance) => {
     if (!fs.existsSync(filepath)) {
         throw new Error(`Test file not found: ${filepath}`);

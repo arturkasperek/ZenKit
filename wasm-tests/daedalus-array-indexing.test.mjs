@@ -1,11 +1,10 @@
 import fs from "fs";
-import path from "path";
 
 describe("DaedalusVm array member indexing", () => {
   test("reads int array elements via [index] and [CONST]", async () => {
     const zenkit = await global.setupZenKit();
 
-    const datPath = path.join(process.cwd(), "..", "spacer-web", "public", "SCRIPTS", "_COMPILED", "GOTHIC.DAT");
+    const datPath = global.getGameAssetPath("SCRIPTS", "_COMPILED", "GOTHIC.DAT");
     expect(fs.existsSync(datPath)).toBe(true);
 
     const scriptBuf = fs.readFileSync(datPath);
@@ -42,4 +41,3 @@ describe("DaedalusVm array member indexing", () => {
     expect(vm.getSymbolInt("C_NPC.attribute[ATR_HITPOINTS_MAX]", instName)).toBe(hpMax);
   });
 });
-
