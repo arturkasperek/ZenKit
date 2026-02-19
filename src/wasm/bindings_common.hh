@@ -254,6 +254,7 @@ namespace zenkit::wasm {
         bool cd_dynamic;            // Dynamic collision detection enabled
         bool vob_static;            // VOB is static
         bool physics_enabled;       // VOB has physics enabled
+        std::string item_instance;  // oCItem script instance name (empty for non-item VOBs)
         BoundingBoxData bbox;       // Axis-aligned bounding box (world space)
         std::vector<VobData> children; // Child VOBs
         

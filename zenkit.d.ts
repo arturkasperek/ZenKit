@@ -89,6 +89,7 @@ declare module '@kolarz3/zenkit' {
     cdDynamic: boolean;
     vobStatic: boolean;
     physicsEnabled: boolean;
+    itemInstance?: string;
     bbox: BoundingBoxData;
     children: VobData[];
   }
@@ -119,6 +120,9 @@ declare module '@kolarz3/zenkit' {
 
     // VirtualObjectType enum value (e.g. 12 = zCVobStartpoint)
     type?: number;
+
+    // oCItem script instance name (e.g. ITFO_APPLE), if this VOB is an item
+    itemInstance?: string;
     
     // VOB name (various possible property names)
     objectName?: string;

@@ -365,6 +365,7 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("cdDynamic", &VobData::cd_dynamic)
         .field("vobStatic", &VobData::vob_static)
         .field("physicsEnabled", &VobData::physics_enabled)
+        .field("itemInstance", &VobData::item_instance)
         .field("bbox", &VobData::bbox)
         .field("children", &VobData::children);
 

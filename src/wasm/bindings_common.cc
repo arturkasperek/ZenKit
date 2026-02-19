@@ -10,6 +10,7 @@
 #include "zenkit/MultiResolutionMesh.hh"
 #include "zenkit/SoftSkinMesh.hh"
 #include "zenkit/vobs/VirtualObject.hh"
+#include "zenkit/vobs/Misc.hh"
 #include "zenkit/DaedalusScript.hh"
 #include "zenkit/DaedalusVm.hh"
 #include "zenkit/CutsceneLibrary.hh"
@@ -380,7 +381,13 @@ namespace zenkit::wasm {
         , cd_dynamic(vob.cd_dynamic)
         , vob_static(vob.vob_static)
         , physics_enabled(vob.physics_enabled)
+        , item_instance("")
         , bbox(vob.bbox) {
+
+        if (vob.type == zenkit::VirtualObjectType::oCItem) {
+            const auto& item = static_cast<const zenkit::VItem&>(vob);
+            item_instance = item.instance;
+        }
         
         // Recursively convert children
         children.reserve(vob.children.size());
