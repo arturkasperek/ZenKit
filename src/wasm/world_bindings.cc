@@ -295,6 +295,16 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .property("errorMessage", &Result<WayEdgeData>::error_message);
 
     // Model mesh structures - simple types first
+    // Register AlphaFunction enum (needed by Material.alphaFunc binding)
+    enum_<zenkit::AlphaFunction>("AlphaFunction")
+        .value("DEFAULT", zenkit::AlphaFunction::DEFAULT)
+        .value("NONE", zenkit::AlphaFunction::NONE)
+        .value("BLEND", zenkit::AlphaFunction::BLEND)
+        .value("ADD", zenkit::AlphaFunction::ADD)
+        .value("SUBTRACT", zenkit::AlphaFunction::SUBTRACT)
+        .value("MULTIPLY", zenkit::AlphaFunction::MULTIPLY)
+        .value("MULTIPLY_ALT", zenkit::AlphaFunction::MULTIPLY_ALT);
+
     // Register MaterialGroup enum
     enum_<zenkit::MaterialGroup>("MaterialGroup")
         .value("UNDEFINED", zenkit::MaterialGroup::UNDEFINED)
