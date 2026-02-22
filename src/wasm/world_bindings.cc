@@ -257,6 +257,11 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
         .field("name", &MaterialData::name)
         .field("group", &MaterialData::group)
         .field("texture", &MaterialData::texture)
+        .field("alphaFunc", &MaterialData::alpha_func)
+        .field("colorR", &MaterialData::color_r)
+        .field("colorG", &MaterialData::color_g)
+        .field("colorB", &MaterialData::color_b)
+        .field("colorA", &MaterialData::color_a)
         // ZenGin: zCMaterial::noCollDet (skip polygons during collision detection)
         .field("disableCollision", &MaterialData::disable_collision);
 
@@ -304,6 +309,7 @@ EMSCRIPTEN_BINDINGS(zenkit_world) {
     value_object<zenkit::Material>("Material")
         .field("name", &zenkit::Material::name)
         .field("group", &zenkit::Material::group)
+        .field("alphaFunc", &zenkit::Material::alpha_func)
         .field("texture", &zenkit::Material::texture)
         .field("textureScale", &zenkit::Material::texture_scale)
         .field("smoothAngle", &zenkit::Material::smooth_angle)

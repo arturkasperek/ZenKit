@@ -90,6 +90,11 @@ namespace zenkit::wasm {
         std::string name;
         uint8_t group;
         std::string texture;
+        uint8_t alpha_func = 0;
+        uint8_t color_r = 0;
+        uint8_t color_g = 0;
+        uint8_t color_b = 0;
+        uint8_t color_a = 0;
         bool disable_collision = false;
 
         MaterialData() = default;
@@ -97,6 +102,11 @@ namespace zenkit::wasm {
             : name(material.name)
             , group(static_cast<uint8_t>(material.group))
             , texture(material.texture)
+            , alpha_func(static_cast<uint8_t>(material.alpha_func))
+            , color_r(material.color.r)
+            , color_g(material.color.g)
+            , color_b(material.color.b)
+            , color_a(material.color.a)
             , disable_collision(material.disable_collision) {}
     };
 

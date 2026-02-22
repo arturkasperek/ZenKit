@@ -527,8 +527,14 @@ namespace zenkit::wasm {
             // Add the submesh material to our materials list
             MaterialData mat_data;
             mat_data.name = submesh.mat.name;
-            mat_data.group = static_cast<uint32_t>(submesh.mat.group);
+            mat_data.group = static_cast<uint8_t>(submesh.mat.group);
             mat_data.texture = submesh.mat.texture;
+            mat_data.alpha_func = static_cast<uint8_t>(submesh.mat.alpha_func);
+            mat_data.color_r = submesh.mat.color.r;
+            mat_data.color_g = submesh.mat.color.g;
+            mat_data.color_b = submesh.mat.color.b;
+            mat_data.color_a = submesh.mat.color.a;
+            mat_data.disable_collision = submesh.mat.disable_collision;
             result.materials.push_back(mat_data);
 
             for (const auto& wedge : submesh.wedges) {
@@ -602,8 +608,14 @@ namespace zenkit::wasm {
             // Add the submesh material
             MaterialData mat_data;
             mat_data.name = submesh.mat.name;
-            mat_data.group = static_cast<uint32_t>(submesh.mat.group);
+            mat_data.group = static_cast<uint8_t>(submesh.mat.group);
             mat_data.texture = submesh.mat.texture;
+            mat_data.alpha_func = static_cast<uint8_t>(submesh.mat.alpha_func);
+            mat_data.color_r = submesh.mat.color.r;
+            mat_data.color_g = submesh.mat.color.g;
+            mat_data.color_b = submesh.mat.color.b;
+            mat_data.color_a = submesh.mat.color.a;
+            mat_data.disable_collision = submesh.mat.disable_collision;
             result.materials.push_back(mat_data);
 
             // Process wedges for this submesh
@@ -781,8 +793,14 @@ namespace zenkit::wasm {
             // Add the submesh material to our materials list
             MaterialData mat_data;
             mat_data.name = submesh.mat.name;
-            mat_data.group = static_cast<uint32_t>(submesh.mat.group);
+            mat_data.group = static_cast<uint8_t>(submesh.mat.group);
             mat_data.texture = submesh.mat.texture;
+            mat_data.alpha_func = static_cast<uint8_t>(submesh.mat.alpha_func);
+            mat_data.color_r = submesh.mat.color.r;
+            mat_data.color_g = submesh.mat.color.g;
+            mat_data.color_b = submesh.mat.color.b;
+            mat_data.color_a = submesh.mat.color.a;
+            mat_data.disable_collision = submesh.mat.disable_collision;
             result.materials.push_back(mat_data);
 
             // Process wedges for this submesh

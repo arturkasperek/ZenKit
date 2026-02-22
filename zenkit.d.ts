@@ -291,10 +291,17 @@ declare module '@kolarz3/zenkit' {
   export interface Material {
     name?: string;
     group?: number;
+    // zenkit::AlphaFunction as numeric enum value
+    alphaFunc?: number;
     // Texture name/path
     texture: string;
     textureScale?: { x: number; y: number };
     smoothAngle?: number;
+    // Material base color from zCMaterial.color
+    colorR?: number;
+    colorG?: number;
+    colorB?: number;
+    colorA?: number;
     /**
      * ZenGin: zCMaterial::noCollDet
      * If true, polygons with this material are skipped during collision detection (foliage, small branches, etc.).
