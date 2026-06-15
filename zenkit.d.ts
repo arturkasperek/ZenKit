@@ -69,7 +69,7 @@ declare module '@kolarz3/zenkit' {
     getWaypointCount(): number;
     getWaypoint(index: number): WayPointResult;
     findWaypointByName(name: string): WayPointResult;
-    getAllWaypoints(): WayPointData[];
+    getAllWaypoints(): WayPointCollection;
     getWaypointEdgeCount(): number;
     getWaypointEdge(index: number): WayEdgeResult;
 
@@ -278,6 +278,11 @@ declare module '@kolarz3/zenkit' {
   export interface VobCollection {
     size(): number;
     get(index: number): Vob;
+  }
+
+  export interface WayPointCollection {
+    size(): number;
+    get(index: number): WayPointData;
   }
 
   export interface VertexFeature {
