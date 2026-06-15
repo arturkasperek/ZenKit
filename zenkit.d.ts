@@ -123,7 +123,12 @@ declare module '@kolarz3/zenkit' {
 
     // oCItem script instance name (e.g. ITFO_APPLE), if this VOB is an item
     itemInstance?: string;
-    
+
+    // Static collision detection enabled for this VOB.
+    cdStatic?: boolean;
+    // Dynamic collision detection enabled for this VOB.
+    cdDynamic?: boolean;
+
     // VOB name (various possible property names)
     objectName?: string;
     name?: string;
