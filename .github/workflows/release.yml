@@ -10,6 +10,8 @@ on:
 jobs:
   release-wasm:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     container:
       image: 'emscripten/emsdk:4.0.13'
     steps:
@@ -51,6 +53,4 @@ jobs:
       - name: Package and publish
         run: |
           cd build-wasm/wasm
-          npm publish --access public
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          npm publish --access public --provenance
